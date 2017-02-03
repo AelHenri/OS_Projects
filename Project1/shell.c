@@ -20,12 +20,12 @@ int main(int argc, char const *argv[])
 		type_prompt();
 		read_command(command,parameters);
 		printf("%s\n", *command);
-		if(fork()!=0){
+		/*if(fork()!=0){
 			waitpid(-1,&status,0);
 		}	
 		else{
 			execve(*command, parameters, 0);
-		}
+		}*/
 	}
 
 	free(command);
