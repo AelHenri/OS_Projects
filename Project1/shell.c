@@ -12,7 +12,8 @@ void read_command(char *command, char *parameters){
 int main(int argc, char const *argv[])
 {
 	while(TRUE){
-		char *command, parameters;
+		char *command;
+		char *parameters;
 		type_prompt();
 		read_command(command,parameters);
 		
