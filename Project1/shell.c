@@ -5,15 +5,17 @@ void type_prompt(){
 
 }
 
-void read_command(char *command, char *parameters){
+void read_command(char *command, char **parameters){
 
 }
 
 int main(int argc, char const *argv[])
 {
+	char *command;
+	char **parameters;
+
+	int status;
 	while(TRUE){
-		char *command;
-		char *parameters;
 		type_prompt();
 		read_command(command,parameters);
 		
