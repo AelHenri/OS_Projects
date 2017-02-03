@@ -1,9 +1,13 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
+#include "shell.h"
 
 
-#define TRUE 1
+void type_prompt(){
+
+}
+
+void read_command(command,parameters){
+
+}
 
 int main(int argc, char const *argv[])
 {
