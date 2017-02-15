@@ -124,7 +124,7 @@ int read_profile(){
 	return 0;
 }
 
-
+/*
 int main(){
 	char* file_name = ".profile";
 	if(-1 == read_file(file_name)){
@@ -133,3 +133,4 @@ int main(){
 	}
 	return 0;
 }
+*/
