@@ -28,27 +28,47 @@ void read_command(char *command, char *parameters[]){
 	{
 		parameters[i] = malloc(sizeof(char *));
 		strcpy(parameters[i], tokens[i]);
+		free(tokens[i]);
 	}
+	free(tokens);
+	free(buffer);
 }
 
+/*
+void main_loop() {
+	char *command;
+	char **parameters;
+	int status = 1;
+
+	while(status) {
+		type_prompt();
+		read_command(command, parameters);
+		status = execute_command(command, parameters);
+
+	}
+}
+*/
 int main(int argc, char const *argv[])
 {
 	char *command = malloc(sizeof(char *));
 	char **parameters = malloc(BUFFSIZE * sizeof(char *));
-
 	int status;
+
 	while(TRUE){
 		type_prompt();
 		read_command(command,parameters);
-		printf("%s\n", command);
 		if(fork()!=0){
 			waitpid(-1,&status,0);
 		}	
 		else{
-			execve(command, parameters, 0);
+			execvp(command, parameters);
 		}
 	}
 
 	free(command);
+	for (int i = 0; i<BUFFSIZE; i++) {
+		free(parameters[i]);
+	}
+	free(parameters);
 	return 0;
 }
