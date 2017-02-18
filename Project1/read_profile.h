@@ -1,13 +1,9 @@
 #ifndef READ_PROFILE
 #define READ_PROFILE
 
-
 #define PROFILE "/.profile"
 #define HOME_ENV_NAME "HOME"
 #define PATH_ENV_NAME "PATH"
-
-char *PATH = NULL;
-char *HOME = NULL;
 
 void change_home_directory();
 

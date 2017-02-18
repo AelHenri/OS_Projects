@@ -1,66 +1,50 @@
-#define _GNU_SOURCE
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <string.h>
-
-#define TOKSIZE 32
-#define MAXTOK 10
-#define SEPARATORS " \t\r\n\a"
-
-int builtin_cd(char **parameters) {
-	if (parameters[1] == NULL) {
-		fprintf(stderr, "Expected argument\n");
-	}
-	else {
-		chdir(parameters[1]);
-		// error handling
-	}
-	return 1;
-}
-
-int builtin_exit() {
-	exit(EXIT_SUCCESS);
-}
-
-int check_for_builtin(char *command, char **parameters) {
-	if (strcmp(command, "cd") == 0) {
-		return builtin_cd(parameters);
-	}
-	else if (strcmp(command, "exit") == 0) {
-		return builtin_exit();
-	}
-	return 0;
-}
-
-/*
-//////////////////                //////////////////
-////////////////// SEPARATE FILES ////////////////// 
-//////////////////                ////////////////// 
-*/
+#include "working_shell.h"
+#include "built_in_functions.h"
+#include "read_profile.h"
 
 void type_prompt(){
 	printf("> ");
 }
 
+// TODO: READ CHAR BY CHAR TO DETECT WHEN TAB OR ARROWS ARE PUSHED, INSTEAD OF USING GETLINE
+int parse_line(char** line) {
+	size_t bufsize = 0;
+	getline(line, &bufsize, stdin);
+	return 1;
+}
+
 int read_command(char *command, char **parameters) {
 	char *line = NULL;
-	size_t bufsize = 0;
-	getline(&line, &bufsize, stdin);
+	parse_line(&line);
 
+	if (strcmp(line, "\n") == 0) {
+		free(line);
+		line = NULL;
+		return 0;
+	}
 	int position = 0;
-	char **tokens = malloc(MAXTOK * sizeof(char*));
+	int maxtokens = MAXTOK;
+	char **tokens = malloc(maxtokens * sizeof(char*));
 	char *token;
 
-	// malloc error handling
+	if (tokens == NULL) {
+		fprintf(stderr, "Malloc failed.\n");
+		exit(EXIT_FAILURE);
+	}
 
 	token = strtok(line, SEPARATORS);
 	while (token != NULL) {
 		tokens[position] = token;
 		position++;
-		// realloc ?
+		
+		if (position >= maxtokens) {
+			maxtokens += MAXTOK;
+			tokens = realloc(tokens, maxtokens * sizeof(char *));
+			if (tokens == NULL) {
+				fprintf(stderr, "Realloc failed.\n");
+				exit(EXIT_FAILURE);
+			}
+		}
 
 		token = strtok(NULL, SEPARATORS);
 	}
@@ -68,29 +52,41 @@ int read_command(char *command, char **parameters) {
 	strcpy(command, tokens[0]);
 	for (int i = 0; i < position; i++) {
 		parameters[i] = malloc(TOKSIZE * sizeof(char));
+
+		if (parameters[i] == NULL) {
+			fprintf(stderr, "Malloc failed.\n");
+			exit(EXIT_FAILURE);
+		}
+
 		strcpy(parameters[i], tokens[i]);
 	}
 	free(tokens);
 	tokens = NULL;
+	free(line);
+	line = NULL;
 
 	return position;
 }
 
-int execute_command(char *command, char **parameters) {
+int execute_command(char *command, char **parameters, int param_size) {
 	pid_t pid;
 	int status;
 
-	int builtin = check_for_builtin(command, parameters);
+	int builtin = check_for_builtin(command, parameters, param_size);
 	if (builtin) return builtin;
 
 	pid = fork();
 	if (pid == 0) {
-		execvp(command, parameters);
-		// error handling
+		if (execvp(command, parameters) == -1) {
+			perror("Execvp");
+		}		
 		exit(EXIT_FAILURE);
 	}
-	else if (pid != 0) {
-		// More error handling
+	else if (pid <0) {
+		perror("Fork");
+	}
+	else {
+
 		do {
 			waitpid(pid, &status, WUNTRACED);
 		} while (!WIFEXITED(status) && !WIFSIGNALED(status));
@@ -106,13 +102,25 @@ void main_loop() {
 	int status = 1;
 	int param_size = 0;
 
+
 	while(status) {
 		command = malloc(TOKSIZE * sizeof(char));
+		if (command == NULL) {
+			fprintf(stderr, "Malloc failed.\n");
+			exit(EXIT_FAILURE);
+		}
 		parameters = malloc(MAXTOK * sizeof(char *));
+		if (parameters == NULL) {
+			fprintf(stderr, "Malloc failed.\n");
+			exit(EXIT_FAILURE);
+		}
 
 		type_prompt();
 		param_size = read_command(command, parameters);
-		status = execute_command(command, parameters);
+
+		if (param_size > 0) {
+			status = execute_command(command, parameters, param_size);
+		}
 		
 		free(command);
 		command = NULL;
@@ -127,6 +135,7 @@ void main_loop() {
 
 int main(int argc, char const *argv[])
 {
+	read_profile();
 	main_loop();
 	return 0;
 }

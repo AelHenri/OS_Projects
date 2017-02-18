@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -6,6 +7,9 @@
 #include <unistd.h>
 
 #include "read_profile.h"
+
+char *PATH = NULL;
+char *HOME = NULL;
 
 void change_home_directory(){
 	int ret;
@@ -94,9 +98,10 @@ int fill_variables(char* line){
    		printf("Name=%s Value=%s","HOME", value);
 
 		home_value(value);
-		//change_home_directory();
+		change_home_directory();
 	}
    }
+   return 1;
 }
 
 int read_file(char *filename){
