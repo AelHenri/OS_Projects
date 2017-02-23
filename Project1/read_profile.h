@@ -1,7 +1,7 @@
 #ifndef READ_PROFILE
 #define READ_PROFILE
 
-#define PROFILE "/.profile"
+#define PROFILE "root/.my_profile"
 #define HOME_ENV_NAME "HOME"
 #define PATH_ENV_NAME "PATH"
 
