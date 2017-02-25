@@ -1,6 +1,9 @@
 #include "working_shell.h"
 #include "built_in_functions.h"
 #include "read_profile.h"
+#include "userinput.h"
+
+extern int ISCLOCK;
 
 void type_prompt(){
 	printf("> ");
@@ -8,8 +11,7 @@ void type_prompt(){
 
 // TODO: READ CHAR BY CHAR TO DETECT WHEN TAB OR ARROWS ARE PUSHED, INSTEAD OF USING GETLINE
 int parse_line(char** line) {
-	size_t bufsize = 0;
-	getline(line, &bufsize, stdin);
+	user_input(line);
 	return 1;
 }
 
@@ -86,7 +88,27 @@ int execute_command(char *command, char **parameters, int param_size) {
 		perror("Fork");
 	}
 	else {
-
+		if (ISCLOCK){
+			int status2;
+			clock_t start_t, end_t, total_t = 0.0;
+			start_t = clock();
+	
+			while (waitpid(pid, &status2, WNOHANG) == 0 && total_t < 5.0) {
+			    end_t = clock();
+			    total_t = (double) (end_t - start_t) / CLOCKS_PER_SEC;
+			}
+			if (total_t >= 5.0) {
+				printf("This is taking too long. Would you like to interrupt the process ? [y][n]\n");
+				char *buffer;
+				size_t bufsize = 0;
+				getline(&buffer, &bufsize, stdin);
+				if (buffer[0] == 'y') {
+					kill(pid, SIGKILL);
+					printf("Killed child process.\n");
+				}
+				free(buffer);
+			}
+		}
 		do {
 			waitpid(pid, &status, WUNTRACED);
 		} while (!WIFEXITED(status) && !WIFSIGNALED(status));
@@ -116,6 +138,7 @@ void main_loop() {
 		}
 
 		type_prompt();
+		
 		param_size = read_command(command, parameters);
 
 		if (param_size > 0) {
@@ -135,7 +158,24 @@ void main_loop() {
 
 int main(int argc, char const *argv[])
 {
+	//int c;
+	//initscr();    /* Start curses mode */
+	//cbreak();
+	//noecho();
+	//printw(">");
+	//while(9 != (c = getch())) {
+	//  printw("%c", c);
+	//  if(halfdelay(1) != ERR) {   /* getch function waits 5 tenths of a second */
+	//    while(getch() == c)
+	//      if(halfdelay(1) == ERR) /* getch function waits 1 tenth of a second */
+	//      break;
+	//  }
+	//  //printw("Got a %d\n", c);
+	//  cbreak();
+	//}
 	read_profile();
 	main_loop();
+	//endwin();
+
 	return 0;
 }

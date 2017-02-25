@@ -9,6 +9,9 @@
 #include <sys/wait.h>
 #include <string.h>
 #include <time.h>
+#include <signal.h>
+//#include <ncurses.h>
+
 
 #define TOKSIZE 32
 #define MAXTOK 10
