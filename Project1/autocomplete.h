@@ -9,6 +9,7 @@ typedef struct autocomplete{
 	Element *current;
 	Element *queue;
 	int size;
+	int isOn;
 } Autocomplete;
 
 void init(Autocomplete **a);
@@ -22,3 +23,5 @@ void getCurrent(Autocomplete **a, char **line);
 void deleteAll(Autocomplete **a);
 void printAutocomplete(int printedString, char *autocompleteString);
 void goToStart(Autocomplete **a);
+void turnOnOff(Autocomplete **a);
+int isOn(Autocomplete **a) ;

@@ -8,10 +8,16 @@ void init(Autocomplete **a) {
 	(*a)->current = NULL;
 	(*a)->queue = NULL;
 	(*a)->size = 0;
+	(*a)->isOn = 0;
 }
 
 void parseHistory(Autocomplete **a, char *path) {
 	FILE *file = fopen(path, "r");
+	if (!file) file = fopen(path, "wr");
+	if (!file) {
+		printf("Cannot open or create .history file.\n");
+		exit(EXIT_FAILURE);
+	}
 	char *line = NULL;
 	size_t size = 0;
 	fseek(file, 0, SEEK_END); // goto end of file
@@ -45,7 +51,7 @@ void saveHistory(Autocomplete **a, char *path) {
 		fprintf(file, "%s\n", (*a)->current->line);
 		(*a)->current = (*a)->current->previous;
 	}
-	fprintf(file, "%s\n", (*a)->current->line);
+	fprintf(file, "%s", (*a)->current->line);
 	fclose(file);
 }
 
@@ -66,22 +72,36 @@ void addLine(Autocomplete **a, char* line) {
 
 void next(Autocomplete **a, char *firstchars) {
 	int len = strlen(firstchars);
-	if (!isEmpty(&((*a)->current)->next)){
-		(*a)->current = ((*a)->current)->next;
+	Element *rightAuto = (*a)->current;
+	if (isOn(a) && !isEmpty(&(rightAuto)->next) && strcmp(rightAuto->next->line, firstchars)){
+		rightAuto = (rightAuto)->next;
+		if (strncmp((rightAuto)->line, firstchars, len) == 0){
+			(*a)->current = rightAuto;
+		}
 	}
-	while(strncmp(((*a)->current)->line, firstchars, len) != 0 && !isEmpty(&((*a)->current->next))){
-		(*a)->current = ((*a)->current)->next;
+
+	while(strncmp((rightAuto)->line, firstchars, len) != 0 && !isEmpty(&(rightAuto->next))){
+		rightAuto = rightAuto->next;
+		if (strncmp((rightAuto)->line, firstchars, len) == 0){
+			(*a)->current = rightAuto;
+		}
 	}
+	rightAuto = NULL;
 }
 
 void previous(Autocomplete **a, char *firstchars) {
 	int len = strlen(firstchars);
-	if (!isEmpty(&((*a)->current)->previous)){
-		(*a)->current = ((*a)->current)->previous;
+	Element *rightAuto = (*a)->current;
+	if (!isEmpty(&(rightAuto)->previous) && strcmp(rightAuto->previous->line, firstchars) != 0){
+		rightAuto = (rightAuto)->previous;
+		if (strncmp((rightAuto)->line, firstchars, len) == 0) (*a)->current = rightAuto;
 	}
-	while(strncmp(((*a)->current)->line, firstchars, len) != 0 && !isEmpty(&((*a)->current->previous))){
-		(*a)->current = ((*a)->current)->previous;
+
+	while(strncmp((rightAuto)->line, firstchars, len) != 0 && !isEmpty(&(rightAuto->previous))){
+		rightAuto = rightAuto->previous;
+		if (strncmp((rightAuto)->line, firstchars, len) == 0) (*a)->current = rightAuto;
 	}
+	rightAuto = NULL;
 }
 
 void getCurrent(Autocomplete **a, char **line) {
@@ -103,6 +123,14 @@ void printAutocomplete(int printed, char *autocompleteString) {
 
 void goToStart(Autocomplete **a) {
 	(*a)->current = (*a)->head;
+}
+
+void turnOnOff(Autocomplete **a) {
+	(*a)->isOn = 1-(*a)->isOn;
+}
+
+int isOn(Autocomplete **a) {
+	return (*a)->isOn;
 }
 
 /*
