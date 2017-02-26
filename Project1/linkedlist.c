@@ -39,7 +39,6 @@ void delete(Element *e) {
 void deleteList(Element **list) {
 	while ((*list) != NULL) {
 		Element *e = pop(list);
-		printf("%s\n", e->line);
 		delete(e);
 	}
 }

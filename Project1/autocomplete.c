@@ -11,6 +11,12 @@ void parseHistory(Autocomplete **a, char *path) {
 	FILE *file = fopen(path, "r");
 	char *line = NULL;
 	size_t size = 0;
+	fseek(file, 0, SEEK_END); // goto end of file
+	if (ftell(file) == 0){
+	      return;
+	}
+	fseek(file, 0, SEEK_SET); // goto begin of file
+	// etc;
 
 	while(getline(&line, &size, file) != -1) {
 		int len = strlen(line);
@@ -18,8 +24,10 @@ void parseHistory(Autocomplete **a, char *path) {
 			line[len-1] = '\0';
 		addLine(a, line);
 	}
+	//printf("hello\n");
 
 	fclose(file);
+	free(line);
 }
 
 void saveHistory(Autocomplete **a, char *path) {
@@ -44,32 +52,22 @@ void addLine(Autocomplete **a, char* line) {
 }
 
 void next(Autocomplete **a, char *firstchars) {
-	if (firstchars[0] == '\0' && !isEmpty(&((*a)->current)) && !isEmpty(&((*a)->current)->next)) {
+	int len = strlen(firstchars);
+	if (!isEmpty(&((*a)->current)->next)){
 		(*a)->current = ((*a)->current)->next;
 	}
-	else {
-		int len = strlen(firstchars);
-		do {
-			if (!isEmpty(&((*a)->current)->next)){
-				(*a)->current = ((*a)->current)->next;
-			}
-		}
-		while(strncmp(((*a)->current)->line, firstchars, len) != 0);
+	while(strncmp(((*a)->current)->line, firstchars, len) != 0 && !isEmpty(&((*a)->current->next))){
+		(*a)->current = ((*a)->current)->next;
 	}
 }
 
 void previous(Autocomplete **a, char *firstchars) {
-	if (!isEmpty(&((*a)->current)) && !isEmpty(&((*a)->current)->previous)) {
+	int len = strlen(firstchars);
+	if (!isEmpty(&((*a)->current)->previous)){
 		(*a)->current = ((*a)->current)->previous;
 	}
-	else {
-		int len = strlen(firstchars);
-		do {
-			if (!isEmpty(&((*a)->current)->previous)){
-				(*a)->current = ((*a)->current)->previous;
-			}
-		}
-		while(strncmp(((*a)->current)->line, firstchars, len) != 0);
+	while(strncmp(((*a)->current)->line, firstchars, len) != 0 && !isEmpty(&((*a)->current->previous))){
+		(*a)->current = ((*a)->current)->previous;
 	}
 }
 
@@ -77,20 +75,33 @@ void getCurrent(Autocomplete **a, char **line) {
 	strcpy(*line, ((*a)->current)->line);
 }
 
+void deleteAll(Autocomplete **a) {
+	deleteList(&(*a)->head);
+	(*a)->head = NULL;
+	(*a)->current = NULL;
+}
+
 int main(int argc, char const *argv[])
 {
 	Autocomplete *a = (Autocomplete*) malloc(sizeof(Autocomplete));
 	init(&a);
-	//parseHistory(&a, ".history");
-	addLine(&a, "hello");
-	addLine(&a, "there");
-	addLine(&a, "my");
-	addLine(&a, "name is");
-	addLine(&a, "henri");
+	parseHistory(&a, ".history");
+	addLine(&a, "lolololo");
+	next(&a, "");
+	//printf("hello\n");
+	next(&a, "");
+//	previous(&a, "");
+//	previous(&a, "");
+//	previous(&a, "");
+	previous(&a, "hh");
+
+	char *line = malloc(MAX_SIZE * sizeof(char));
+	getCurrent(&a, &line);
+	printf("%s\n", line);
 	saveHistory(&a, ".history");
-	//char *line = malloc(MAX_SIZE * sizeof(char));
-	//getCurrent(&a, &line);
-	//printf("%s\n", line);
+	deleteAll(&a);
+	free(line);
+	free(a);
 	return 0;
 }
 
