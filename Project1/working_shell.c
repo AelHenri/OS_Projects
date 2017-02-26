@@ -2,8 +2,10 @@
 #include "built_in_functions.h"
 #include "read_profile.h"
 #include "userinput.h"
+#include "autocomplete.h"
 
 extern int ISCLOCK;
+Autocomplete *autocomplete;
 
 void type_prompt(){
 	printf("> ");
@@ -19,7 +21,7 @@ int read_command(char *command, char **parameters) {
 	char *line = NULL;
 	parse_line(&line);
 
-	if (strcmp(line, "\n") == 0) {
+	if (line[0] == '\0') {
 		free(line);
 		line = NULL;
 		return 0;
@@ -159,24 +161,14 @@ void main_loop() {
 
 int main(int argc, char const *argv[])
 {
-	//int c;
-	//initscr();    /* Start curses mode */
-	//cbreak();
-	//noecho();
-	//printw(">");
-	//while(9 != (c = getch())) {
-	//  printw("%c", c);
-	//  if(halfdelay(1) != ERR) {   /* getch function waits 5 tenths of a second */
-	//    while(getch() == c)
-	//      if(halfdelay(1) == ERR) /* getch function waits 1 tenth of a second */
-	//      break;
-	//  }
-	//  //printw("Got a %d\n", c);
-	//  cbreak();
-	//}
+	autocomplete = (Autocomplete*) malloc(sizeof(Autocomplete));
+	init(&autocomplete);
+	parseHistory(&autocomplete, ".history");
 	read_profile();
 	main_loop();
-	//endwin();
+	saveHistory(&autocomplete, ".history");
+	deleteAll(&autocomplete);
+	free(autocomplete);
 
 	return 0;
 }

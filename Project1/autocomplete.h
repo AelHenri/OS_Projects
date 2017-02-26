@@ -7,6 +7,8 @@
 typedef struct autocomplete{
 	Element *head;
 	Element *current;
+	Element *queue;
+	int size;
 } Autocomplete;
 
 void init(Autocomplete **a);
@@ -14,3 +16,9 @@ void addLine(Autocomplete **a, char *line);
 void delLine(Autocomplete **a);
 void next(Autocomplete **a, char *firstchars);
 void previous(Autocomplete **a, char *firstchars);
+void parseHistory(Autocomplete **a, char *path);
+void saveHistory(Autocomplete **a, char *path);
+void getCurrent(Autocomplete **a, char **line);
+void deleteAll(Autocomplete **a);
+void printAutocomplete(int printedString, char *autocompleteString);
+void goToStart(Autocomplete **a);

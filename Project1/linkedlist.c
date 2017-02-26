@@ -25,11 +25,26 @@ Element *pop(Element **list) {
 	return first;
 }
 
+void removeElement(Element *e) {
+	Element *prev = NULL;
+	Element *nex = NULL;
+	if (!isEmpty(&(e->previous))) {
+		prev = e->previous;
+	}
+	if (!isEmpty(&(e->previous))) {
+		nex = e->next;
+	}
+	prev->next = nex;
+	nex->previous = prev;
+	e->next = NULL;
+	e->previous = NULL;
+}
+
 int isEmpty(Element **list) {
 	return (*list)==NULL;
 }
 
-void delete(Element *e) {
+void deleteElement(Element *e) {
 	free(e->line);
 	e->line = NULL;
 	free(e);
@@ -39,6 +54,6 @@ void delete(Element *e) {
 void deleteList(Element **list) {
 	while ((*list) != NULL) {
 		Element *e = pop(list);
-		delete(e);
+		deleteElement(e);
 	}
 }

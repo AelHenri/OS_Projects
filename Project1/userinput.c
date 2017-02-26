@@ -1,6 +1,8 @@
 #include "userinput.h"
+#include "autocomplete.h"
 
 #define MAX_SIZE 50
+extern Autocomplete *autocomplete;
 
 int getkey() {
     int character;
@@ -84,11 +86,28 @@ void delete(char *string, int pos) {
     tmp = NULL;
 }
 
+int autocompleteNext(char *firstchars, char *buffer, int printed) {
+    next(&autocomplete, firstchars);
+    getCurrent(&autocomplete, &buffer);
+    printAutocomplete(printed, buffer);
+    return strlen(buffer);
+}
+
+int autocompletePrevious(char *firstchars, char *buffer, int printed) {
+    previous(&autocomplete, firstchars);
+    getCurrent(&autocomplete, &buffer);
+    printAutocomplete(printed, buffer);
+    return strlen(buffer);
+}
+
 void user_input(char **line)
 {
     int c;
     int buffersize = MAX_SIZE;
     char *buffer = malloc(buffersize * sizeof(char));
+    char *firstchars = malloc(buffersize * sizeof(char));    
+    int autocompleting = 0;
+    int printed = 0;
     buffer[0] = '\0';
     int i = 0;
     int cursor = 0;
@@ -97,18 +116,40 @@ void user_input(char **line)
             getkey(); // skip the [
             switch(getkey()) { // the real value
                 case 'A':
-                    //printf("up");// autocomplete previous
+                    if (!autocompleting) {
+                        autocompleting = 1;
+                        strcpy(firstchars, buffer);
+                        printed = i;
+                        if (cursor < i) {
+                            for (int j = cursor; j<i; j++) printf(" ");
+                        }
+                        //cursor = i;
+                        getCurrent(&autocomplete, &buffer);
+                        printAutocomplete(printed, buffer);
+                        printed = strlen(buffer);
+                    }
+                    else { 
+                        printed = autocompleteNext(firstchars, buffer, printed);
+                    }
+                    i = printed;
+                    cursor = printed;
                     break;
                 case 'B':
-                    //printf("down");// autocomplete next
+                    if (autocompleting) {
+                        printed = autocompletePrevious(firstchars, buffer, printed);
+                        i = printed;
+                        cursor = printed;
+                    }
                     break;
                 case 'C':
+                    if (autocompleting) autocompleting = 0;
                     if (cursor < i) {
                         printf("%c", buffer[cursor]);// move cursor to the right
                         cursor++;
                     }
                     break;
                 case 'D':
+                    if (autocompleting) autocompleting = 0;
                     if (cursor > 0) {
                         cursor--;
                         printf("\b");// move cursor to the left
@@ -117,6 +158,7 @@ void user_input(char **line)
             }
         }
         else if (c==8 && i>0 && cursor>0) {
+            if (autocompleting) autocompleting = 0;
             i--;
             cursor--;
             if (cursor == i) {
@@ -128,12 +170,28 @@ void user_input(char **line)
             }
         }
         else if (c==127 && cursor < i) {
+            if (autocompleting) autocompleting = 0;
             i--;
             delete(buffer, cursor);
         }
-        else if (c == 9); //autocomplete next
+        else if (c == 9) {
+            if (!autocompleting) {
+                autocompleting = 1;
+                strcpy(firstchars, buffer);
+                printed = i;
+                getCurrent(&autocomplete, &buffer);
+                printAutocomplete(printed, buffer);
+                printed = strlen(buffer);
+            }
+            else {
+                printed = autocompleteNext(firstchars, buffer, printed);
+            }
+            i = printed;
+            c = printed;
+        }
 
         else if (c >= 32 && c<= 255 && c!=127) {
+            if (autocompleting) autocompleting = 0;
             if (cursor == i) {
                 printf("%c", c);
                 append(buffer, c);
@@ -150,9 +208,14 @@ void user_input(char **line)
             buffer = realloc(buffer, buffersize);
         }
     }
-    printf("\n%s\n", buffer);
+    addLine(&autocomplete, buffer);
+    goToStart(&autocomplete);
     *line = malloc(sizeof(buffer));
-    strcpy(*line, buffer);
+    if (buffer != NULL)
+        strcpy(*line, buffer);;
+    printf("\n");
     free(buffer);
     buffer = NULL;
+    free(firstchars);
+    firstchars = NULL;
 }

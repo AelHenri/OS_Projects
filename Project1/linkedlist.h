@@ -14,7 +14,8 @@ typedef struct element {
 void push(Element **list, char *line);
 Element *pop(Element **list);
 int isEmpty(Element **list);
-void delete(Element *e);
+void deleteElement(Element *e);
 void deleteList(Element **list);
+void removeElement(Element *e);
 
 #endif

@@ -1,10 +1,13 @@
 #include "autocomplete.h"
 
 #define MAX_SIZE 50
+#define MAX_HISTORY_SIZE 200
 
 void init(Autocomplete **a) {
 	(*a)->head = NULL;
 	(*a)->current = NULL;
+	(*a)->queue = NULL;
+	(*a)->size = 0;
 }
 
 void parseHistory(Autocomplete **a, char *path) {
@@ -49,6 +52,16 @@ void saveHistory(Autocomplete **a, char *path) {
 void addLine(Autocomplete **a, char* line) {
 	push(&((*a)->head), line);
 	(*a)->current = (*a)->head;
+	if (isEmpty(&(*a)->head->next)) (*a)->queue = (*a)->head;
+	if ((*a)->size >= MAX_HISTORY_SIZE) {
+		Element *last = (*a)->queue;
+		(*a)->queue = last->previous;
+		removeElement(last);
+		deleteElement(last);
+	}
+	else {
+		(*a)->size++;
+	}
 }
 
 void next(Autocomplete **a, char *firstchars) {
@@ -81,6 +94,18 @@ void deleteAll(Autocomplete **a) {
 	(*a)->current = NULL;
 }
 
+void printAutocomplete(int printed, char *autocompleteString) {
+	for (int i=0; i<printed; i++) {
+		printf("\b \b");
+	}
+	printf("%s", autocompleteString);
+}
+
+void goToStart(Autocomplete **a) {
+	(*a)->current = (*a)->head;
+}
+
+/*
 int main(int argc, char const *argv[])
 {
 	Autocomplete *a = (Autocomplete*) malloc(sizeof(Autocomplete));
@@ -104,4 +129,4 @@ int main(int argc, char const *argv[])
 	free(a);
 	return 0;
 }
-
+*/

@@ -1,6 +1,8 @@
 #include "built_in_functions.h"
+#include "autocomplete.h"
 
 int ISCLOCK=1;
+extern Autocomplete *autocomplete;
 
 int builtin_cd(char **parameters) {
 	if (parameters[1] == NULL) {
@@ -18,7 +20,12 @@ int builtin_exit(char *command, char **parameters, int param_size) {
 	for (int i=0; i<param_size; i++) {
 		free(parameters[i]);
 	}
+	saveHistory(&autocomplete, ".history");
+	deleteAll(&autocomplete);
+	free(autocomplete);
+	autocomplete = NULL;
 	free(parameters);
+	parameters = NULL;
 	exit(EXIT_SUCCESS);
 }
 
