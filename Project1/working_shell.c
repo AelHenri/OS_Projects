@@ -66,6 +66,7 @@ int read_command(char *command, char **parameters) {
 	tokens = NULL;
 	free(line);
 	line = NULL;
+	//printf("\n");
 
 	return position;
 }

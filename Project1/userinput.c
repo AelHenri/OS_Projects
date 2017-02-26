@@ -89,6 +89,7 @@ void user_input(char **line)
     int c;
     int buffersize = MAX_SIZE;
     char *buffer = malloc(buffersize * sizeof(char));
+    buffer[0] = '\0';
     int i = 0;
     int cursor = 0;
     while('\n'!=(c=getkey())) {
@@ -96,10 +97,10 @@ void user_input(char **line)
             getkey(); // skip the [
             switch(getkey()) { // the real value
                 case 'A':
-                    printf("up");// autocomplete previous
+                    //printf("up");// autocomplete previous
                     break;
                 case 'B':
-                    printf("down");// autocomplete next
+                    //printf("down");// autocomplete next
                     break;
                 case 'C':
                     if (cursor < i) {
@@ -126,11 +127,11 @@ void user_input(char **line)
                 backspace(buffer, cursor);
             }
         }
-        else if (c==127) {
+        else if (c==127 && cursor < i) {
             i--;
             delete(buffer, cursor);
         }
-        else if (c == 9) printf("Autocomplete !");
+        else if (c == 9); //autocomplete next
 
         else if (c >= 32 && c<= 255 && c!=127) {
             if (cursor == i) {
@@ -149,8 +150,9 @@ void user_input(char **line)
             buffer = realloc(buffer, buffersize);
         }
     }
-    //printf("\n", buffer);
+    printf("\n%s\n", buffer);
     *line = malloc(sizeof(buffer));
     strcpy(*line, buffer);
     free(buffer);
+    buffer = NULL;
 }
