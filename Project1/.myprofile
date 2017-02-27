@@ -1,0 +1,3 @@
+#export HOME=/usr/src/commands
+export PATH=/root/bin:/usr/local
+export HOME=/root
