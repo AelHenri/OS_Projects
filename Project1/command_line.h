@@ -3,6 +3,6 @@
 
 #include "command_utilities.h"
 
-void parse_command(char *line, struct cmd_line *cmd)
+void parse_command(char *line, struct cmd_line *cmd);
 
 #endif
