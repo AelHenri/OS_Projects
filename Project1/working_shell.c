@@ -4,14 +4,43 @@
 #include "userinput.h"
 #include "autocomplete.h"
 
+#define ALARM_SECS 5
+
 extern int ISCLOCK;
 Autocomplete *autocomplete;
 
 void type_prompt(){
-	printf("> ");
+	char cwd[1024];
+	getcwd(cwd, sizeof(cwd));
+	if (cwd) {	
+		printf("%s%s #%s ", GRN, cwd, NRM);
+	} 
+	else {
+		printf("%s#%s ", GRN, NRM);	
+	}
 }
 
-// TODO: READ CHAR BY CHAR TO DETECT WHEN TAB OR ARROWS ARE PUSHED, INSTEAD OF USING GETLINE
+void runClock(int pid, int seconds) {
+	int status;
+	int counter = 0;
+	int usecs = seconds*1e6;
+	while (waitpid(pid, &status, WNOHANG) == 0 && counter < usecs) {
+		usleep(1e5);
+		counter+=1e5;
+	}
+	if (counter >= usecs) {
+		printf("%sThis process is taking too much time to terminate.%s Would you like to interrupt it ? [y][n]\n", RED, NRM);
+		char c = getchar();
+		if (c == 'y') {
+			kill(pid, SIGKILL);
+			printf("Killed child process.\n");
+		}
+		else {
+			printf("Letting the process run.\n");
+		}
+	}
+}
+
 int parse_line(char** line) {
 	user_input(line);
 	return 1;
@@ -32,7 +61,7 @@ int read_command(char *command, char **parameters) {
 	char *token;
 
 	if (tokens == NULL) {
-		fprintf(stderr, "Malloc failed.\n");
+		fprintf(stderr, "%sMalloc failed.%s\n", RED, NRM);
 		exit(EXIT_FAILURE);
 	}
 
@@ -40,16 +69,6 @@ int read_command(char *command, char **parameters) {
 	while (token != NULL) {
 		tokens[position] = token;
 		position++;
-		
-		if (position >= maxtokens) {
-			maxtokens += MAXTOK;
-			tokens = realloc(tokens, maxtokens * sizeof(char *));
-			if (tokens == NULL) {
-				fprintf(stderr, "Realloc failed.\n");
-				exit(EXIT_FAILURE);
-			}
-		}
-
 		token = strtok(NULL, SEPARATORS);
 	}
 	tokens[position] = NULL;
@@ -58,7 +77,7 @@ int read_command(char *command, char **parameters) {
 		parameters[i] = malloc(TOKSIZE * sizeof(char));
 
 		if (parameters[i] == NULL) {
-			fprintf(stderr, "Malloc failed.\n");
+			fprintf(stderr, "%sMalloc failed.%s\n", RED, NRM);
 			exit(EXIT_FAILURE);
 		}
 
@@ -92,25 +111,7 @@ int execute_command(char *command, char **parameters, int param_size) {
 	}
 	else {
 		if (ISCLOCK){
-			int status2;
-			clock_t start_t, end_t, total_t = 0.0;
-			start_t = clock();
-	
-			while (waitpid(pid, &status2, WNOHANG) == 0 && total_t < 5.0) {
-			    end_t = clock();
-			    total_t = (double) (end_t - start_t) / CLOCKS_PER_SEC;
-			}
-			if (total_t >= 5.0) {
-				printf("This is taking too long. Would you like to interrupt the process ? [y][n]\n");
-				char *buffer;
-				size_t bufsize = 0;
-				getline(&buffer, &bufsize, stdin);
-				if (buffer[0] == 'y') {
-					kill(pid, SIGKILL);
-					printf("Killed child process.\n");
-				}
-				free(buffer);
-			}
+			runClock(pid, ALARM_SECS);
 		}
 		do {
 			waitpid(pid, &status, WUNTRACED);
@@ -131,12 +132,12 @@ void main_loop() {
 	while(status) {
 		command = malloc(TOKSIZE * sizeof(char));
 		if (command == NULL) {
-			fprintf(stderr, "Malloc failed.\n");
+			fprintf(stderr, "%sMalloc failed.%s\n", RED, NRM);
 			exit(EXIT_FAILURE);
 		}
 		parameters = malloc(MAXTOK * sizeof(char *));
 		if (parameters == NULL) {
-			fprintf(stderr, "Malloc failed.\n");
+			fprintf(stderr, "%sMalloc failed.%s\n", RED, NRM);
 			exit(EXIT_FAILURE);
 		}
 

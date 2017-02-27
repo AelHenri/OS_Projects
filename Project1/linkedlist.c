@@ -1,6 +1,6 @@
 #include "linkedlist.h"
 
-#define MAX_SIZE 50
+#define MAX_SIZE 128
 
 
 void push(Element **list, char *line) {
@@ -14,6 +14,7 @@ void push(Element **list, char *line) {
 		(*list)->previous = new;
 	}
 	*list = new;
+	s = NULL;
 }
 
 Element *pop(Element **list) {

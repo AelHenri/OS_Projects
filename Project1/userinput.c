@@ -1,7 +1,7 @@
 #include "userinput.h"
 #include "autocomplete.h"
 
-#define MAX_SIZE 50
+#define MAX_SIZE 100
 extern Autocomplete *autocomplete;
 
 int getkey() {
