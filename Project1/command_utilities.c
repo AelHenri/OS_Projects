@@ -7,6 +7,11 @@
 #include "stack.h"
 #include "command_utilities.h"
 
+/*
+ * Initialize the structure cmd_line containing an array 
+ * of the structure cmd_data that containes the command 
+ * string and the order of execution
+ */
 void initialize_cmd_line(struct cmd_line *c){
 	int i;
 	c->index_array = 0;
@@ -17,6 +22,9 @@ void initialize_cmd_line(struct cmd_line *c){
 	}
 }
 
+/*
+ * Free the strings containted in the structure cmd_line
+ */
 void free_cmd_line(struct cmd_line *c){
 	int index = c->index_array;
 	int i = 0;
