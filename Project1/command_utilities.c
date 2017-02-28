@@ -16,7 +16,7 @@ void initialize_cmd_line(struct cmd_line *c){
 	int i;
 	c->index_array = 0;
 	for(i=0; i < MAX_NB_CMD; i++){
-		c->cmd_array[i].cmd = NULL;
+		//c->cmd_array[i].cmd[0] = '\0';
 		c->cmd_array[i].index_queue = 0;		
 		c->cmd_array[i].index_cmd = 0;
 	}
@@ -149,6 +149,7 @@ char** str_split(char* a_str, const char a_delim)
         assert(idx == count - 1);
         *(result + idx) = 0;
     }
+    //free(tmp);
     return result;
 }
 

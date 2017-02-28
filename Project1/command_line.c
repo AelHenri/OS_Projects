@@ -14,12 +14,11 @@ void parse_command(char *line, struct cmd_line *cmd)
 
     static char array[MAX_LINE]; 
     char *local_line = array;         
-    strcpy(local_line, line);	
-	int index_semi, index_and, index_par, index_par_last, index_par_depth, index_and_depth, index_sem, i = 0, l = 0, k, q;
+    strcpy(local_line, line);
+    //free(line);	
+	int k, index_semi, index_and, index_par, index_par_last, index_par_depth, index_and_depth, l = 0, q;
 
-	char c = local_line[i];
-	char *ptr_and_position, *ptr_par_position, *ptr_par_close_position, *ptr_par_position_depth, *ptr_semicolon_position, *ptr_and_position_depth, *ptr_semi_position ;
-	char *cmd_data = NULL;
+	char *ptr_and_position, *ptr_par_position, *ptr_par_close_position, *ptr_par_position_depth, *ptr_and_position_depth, *ptr_semi_position ;
 
 	char **tokens;
 
@@ -61,8 +60,7 @@ void parse_command(char *line, struct cmd_line *cmd)
 	englobing_paranthesis(local_line);
 
 	int nb_semi = contains_semicolon(local_line);
-	printf("im here nb nb_semi %d\n", nb_semi);
-	printf("local_line %s\n", local_line);
+
 	if(nb_semi == 0){
 		remove_all_chars(local_line, ')');
 		remove_all_chars(local_line, '(');		
@@ -134,7 +132,7 @@ void parse_command(char *line, struct cmd_line *cmd)
 		{	
 			if(index_semi < index_par && index_semi < index_and )
 			{	
-				
+				q = cmd->cmd_array[cmd->index_array].index_queue;
 				tokens = str_split_into_two(local_line, ';');
 				if (tokens)
 				{	
@@ -266,6 +264,9 @@ void parse_command(char *line, struct cmd_line *cmd)
 			}
 		}		
 		
+	}
+	else {
+		fprintf(stderr, "Syntax error\n");
 	} 
 }
 

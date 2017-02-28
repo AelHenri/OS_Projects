@@ -27,9 +27,9 @@ typedef struct Queue{
     Node* head;
     Node* tail;
 
-    void (*push) (struct Queue*, int); // add item to tail
+    void (*pushQueue) (struct Queue*, int); // add item to tail
     // get item from head and remove it from queue
-    int (*pop) (struct Queue*);
+    int (*popQueue) (struct Queue*);
     // get item from head but keep it in queue
     int (*peek) (struct Queue*);
     // display all element in queue
@@ -44,15 +44,15 @@ typedef struct Queue{
 Queue createQueue();
 
 /**
- * Push an item into queue, if this is the first item,
+ * PushQueue an item into queue, if this is the first item,
  * both queue->head and queue->tail will point to it,
  * otherwise the oldtail->next and tail will point to it.
  */
-void push(Queue* queue, int item);
+void pushQueue(Queue* queue, int item);
 /**
  * Return and remove the first item.
  */
-int pop(Queue* queue);
+int popQueue(Queue* queue);
 /**
  * Return but not remove the first item.
  */

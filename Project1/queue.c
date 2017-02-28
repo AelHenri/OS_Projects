@@ -22,7 +22,7 @@
  * both queue->head and queue->tail will point to it,
  * otherwise the oldtail->next and tail will point to it.
  */
-void push (Queue* queue, int item) {
+void pushQueue (Queue* queue, int item) {
     // Create a new node
     Node* n = (Node*) malloc (sizeof(Node));
     n->item = item;
@@ -39,7 +39,7 @@ void push (Queue* queue, int item) {
 /**
  * Return and remove the first item.
  */
-int pop (Queue* queue) {
+int popQueue (Queue* queue) {
     // get the first item
     Node* head = queue->head;
     int item = head->item;
@@ -86,8 +86,8 @@ Queue createQueue () {
     queue.size = 0;
     queue.head = NULL;
     queue.tail = NULL;
-    queue.push = &push;
-    queue.pop = &pop;
+    queue.pushQueue = &pushQueue;
+    queue.popQueue = &popQueue;
     queue.peek = &peek;
     queue.display = &display;
     return queue;

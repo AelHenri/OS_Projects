@@ -12,10 +12,10 @@ Autocomplete *autocomplete;
 void type_prompt(){
 	char cwd[1024];
 	if (getcwd(cwd, sizeof(cwd))) {	
-		printf("%s%s #%s ", GRN, cwd, NRM);
+		printf("\n%s%s #%s ", GRN, cwd, NRM);
 	} 
 	else {
-		printf("%s#%s ", GRN, NRM);	
+		printf("\n%s#%s ", GRN, NRM);	
 	}
 }
 
@@ -162,9 +162,9 @@ void main_loop() {
 int main(int argc, char const *argv[])
 {
 	autocomplete = (Autocomplete*) malloc(sizeof(Autocomplete));
+	read_profile();
 	init(&autocomplete);
 	parseHistory(&autocomplete, ".history");
-	read_profile();
 	main_loop();
 	saveHistory(&autocomplete, ".history");
 	deleteAll(&autocomplete);
