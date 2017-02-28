@@ -3,10 +3,12 @@
 
 int ISCLOCK=1;
 extern Autocomplete *autocomplete;
+extern char *HOME;
 
 int builtin_cd(char **parameters) {
 	if (parameters[1] == NULL) {
-		fprintf(stderr, "Expected argument\n");
+		if (HOME) chdir(HOME);
+		else fprintf(stderr, "No HOME folder set; Argument expexted.\n");
 	}
 	else {
 		chdir(parameters[1]);

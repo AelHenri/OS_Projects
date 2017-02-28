@@ -14,7 +14,7 @@
 
 
 #define TOKSIZE 128
-#define MAXTOK 10
+#define MAXTOK 20
 #define SEPARATORS " \t\r\n\a"
 
 #define NRM  "\x1B[0m"

@@ -11,8 +11,7 @@ Autocomplete *autocomplete;
 
 void type_prompt(){
 	char cwd[1024];
-	getcwd(cwd, sizeof(cwd));
-	if (cwd) {	
+	if (getcwd(cwd, sizeof(cwd))) {	
 		printf("%s%s #%s ", GRN, cwd, NRM);
 	} 
 	else {
@@ -83,6 +82,7 @@ int read_command(char *command, char **parameters) {
 
 		strcpy(parameters[i], tokens[i]);
 	}
+	for (int i = position; i<MAXTOK; i++) parameters[i] = NULL;
 	free(tokens);
 	tokens = NULL;
 	free(line);
@@ -122,12 +122,11 @@ int execute_command(char *command, char **parameters, int param_size) {
 }
 
 void main_loop() {
-	char *command;
-	char **parameters;
+	char *command = NULL;
+	char **parameters = NULL;
 
 	int status = 1;
 	int param_size = 0;
-
 
 	while(status) {
 		command = malloc(TOKSIZE * sizeof(char));
