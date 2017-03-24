@@ -77,7 +77,7 @@ queue.o: queue.c
 working_shell_utils.o: working_shell_utils.c
 
 clean:
-	rm -f $(OBJ) *~ 
+	rm -f $(OBJ) $(OBJ2) *~ 
 
 cleanall: clean
 	rm -rf $(BIN) core.*

@@ -9,6 +9,9 @@
 extern int ISCLOCK;
 Autocomplete *autocomplete;
 
+/*
+ * Function that types the prompt
+**/
 void type_prompt(){
 	char cwd[1024];
 	if (getcwd(cwd, sizeof(cwd))) {	
@@ -19,6 +22,9 @@ void type_prompt(){
 	}
 }
 
+/*
+ * Function that waits a given number of seconds before asking the user if he wants to kill the process pid
+**/
 void runClock(int pid, int seconds) {
 	int status;
 	int counter = 0;
@@ -45,6 +51,9 @@ int parse_line(char** line) {
 	return 1;
 }
 
+/*
+ * Function that parses the given command into a command name and parameters, with parameters[0] being equal to command, and returns the size of parameters
+**/
 int read_command(char *command, char **parameters) {
 	char *line = NULL;
 	parse_line(&line);
@@ -87,8 +96,6 @@ int read_command(char *command, char **parameters) {
 	tokens = NULL;
 	free(line);
 	line = NULL;
-	//printf("\n");
-
 	return position;
 }
 
