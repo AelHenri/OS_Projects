@@ -680,7 +680,7 @@ unsigned operations;
 	}
 	if (operations & SR_SELECT_EXCEPTION)
 	{
-		/* Nothing */
+		printf("eth_select: not implemented for exceptions\n");
 	}
 	return resops;
 }

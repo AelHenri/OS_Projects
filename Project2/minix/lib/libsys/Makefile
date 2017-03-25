@@ -1,3 +1,6 @@
+NOGCCERROR=yes
+NOCLANGERROR=yes
+
 # Makefile for libsys
 .include <bsd.own.mk>
 
@@ -14,9 +17,7 @@ SRCS+=  \
 	assert.c \
 	asynsend.c \
 	checkperms.c \
-	clock_time.c \
 	copyfd.c \
-	cpuavg.c \
 	ds.c	\
 	env_get_prm.c \
 	env_panic.c \
@@ -35,8 +36,6 @@ SRCS+=  \
 	mapdriver.c \
 	optset.c \
 	panic.c \
-	proceventmask.c \
-	rmib.c \
 	safecopies.c \
 	sched_start.c \
 	sched_stop.c \
@@ -44,16 +43,15 @@ SRCS+=  \
 	sef_fi.c \
 	sef_init.c \
 	sef_liveupdate.c \
-	sef_llvm.c \
 	sef_ping.c \
 	sef_signal.c \
-	sef_st.c \
 	sqrt_approx.c \
 	srv_fork.c \
 	srv_kill.c \
 	stacktrace.c \
 	sys_abort.c \
 	sys_clear.c \
+	sys_cprof.c \
 	sys_diagctl.c \
 	sys_endsig.c \
 	sys_exec.c \
@@ -69,6 +67,7 @@ SRCS+=  \
 	sys_padconf.c \
 	sys_physcopy.c \
 	sys_privctl.c \
+	sys_profbuf.c \
 	sys_runctl.c \
 	sys_safecopy.c \
 	sys_safememset.c \
@@ -97,12 +96,12 @@ SRCS+=  \
 	vm_cache.c \
 	vm_exit.c \
 	vm_fork.c \
-	vm_getrusage.c \
 	vm_info.c \
 	vm_map_phys.c \
 	vm_memctl.c \
-	vm_prepare.c \
+	vm_notify_sig.c \
 	vm_procctl.c \
+	vm_query_exit.c \
 	vm_set_priv.c \
 	vm_update.c
 
@@ -129,8 +128,7 @@ SRCS+=	pci_attr_r16.c \
 
 .if ${MKCOVERAGE} != "no"
 SRCS+=	gcov.c \
-	sef_gcov.c \
-	llvm_gcov.c
+	sef_gcov.c
 CPPFLAGS+= -DUSE_COVERAGE
 .endif
 
@@ -143,6 +141,5 @@ CPPFLAGS+= -DUSE_SYSDEBUG
 .endif
 
 CPPFLAGS.sched_start.c+=	-I${NETBSDSRCDIR}/minix
-CPPFLAGS.sef_st.c+=		-I${NETBSDSRCDIR}/minix
 
 .include <bsd.lib.mk>

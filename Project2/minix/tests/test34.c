@@ -577,7 +577,7 @@ uid_t * r_uid;
 gid_t * r_gid;
 {
   char line[N];
-  unsigned char *p;
+  char *p;
   uid_t uid;
   gid_t gid;
   FILE *fp;
@@ -597,8 +597,8 @@ gid_t * r_gid;
 		perror(PASSWD_FILE);
 	}
 	while (fp != NULL && fgets(line, sizeof(line), fp) != NULL) {
-		p = (unsigned char *)strchr(line, ':');
-		if (p != NULL) p = (unsigned char *)strchr((char *)p + 1, ':');
+		p = strchr(line, ':');
+		if (p != NULL) p = strchr(p + 1, ':');
 		if (p != NULL) {
 			p++;
 			uid = 0;

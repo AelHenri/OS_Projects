@@ -26,6 +26,7 @@
 #include <minix/debug.h>
 #include <minix/vfsif.h>
 #include "file.h"
+#include "scratchpad.h"
 #include "vmnt.h"
 #include "vnode.h"
 
@@ -40,14 +41,14 @@ static void do_init_root(void);
 static void handle_work(void (*func)(void));
 static void reply(message *m_out, endpoint_t whom, int result);
 
-static int get_work(void);
+static void get_work(void);
 static void service_pm(void);
 static int unblock(struct fproc *rfp);
 
 /* SEF functions and variables. */
 static void sef_local_startup(void);
 static int sef_cb_init_fresh(int type, sef_init_info_t *info);
-static int sef_cb_init_lu(int type, sef_init_info_t *info);
+static endpoint_t receive_from;
 
 /*===========================================================================*
  *				main					     *
@@ -66,17 +67,15 @@ int main(void)
 
   printf("Started VFS: %d worker thread(s)\n", NR_WTHREADS);
 
+  if (OK != (sys_getkinfo(&kinfo)))
+	panic("couldn't get kernel kinfo");
+
   /* This is the main loop that gets work, processes it, and sends replies. */
   while (TRUE) {
-	worker_yield();	/* let other threads run */
-
+	yield_all();	/* let other threads run */
+	self = NULL;
 	send_work();
-
-	/* The get_work() function returns TRUE if we have a new message to
-	 * process. It returns FALSE if it spawned other thread activities.
-	 */
-	if (!get_work())
-		continue;
+	get_work();
 
 	transid = TRNS_GET_ID(m_in.m_type);
 	if (IS_VFS_FS_TRANSID(transid)) {
@@ -192,17 +191,8 @@ static void do_reply(struct worker_thread *wp)
   if (wp->w_task != who_e) {
 	printf("VFS: tid %d: expected %d to reply, not %d\n",
 		wp->w_tid, wp->w_task, who_e);
-	return;
-  }
-  /* It should be impossible to trigger the following case, but it is here for
-   * consistency reasons: worker_stop() resets w_sendrec but not w_task.
-   */
-  if (wp->w_sendrec == NULL) {
-	printf("VFS: tid %d: late reply from %d ignored\n", wp->w_tid, who_e);
-	return;
   }
   *wp->w_sendrec = m_in;
-  wp->w_sendrec = NULL;
   wp->w_task = NONE;
   if(vmp) vmp->m_comm.c_cur_reqs--; /* We've got our reply, make room for others */
   worker_signal(wp); /* Continue this thread */
@@ -213,44 +203,22 @@ static void do_reply(struct worker_thread *wp)
  *===========================================================================*/
 static void do_pending_pipe(void)
 {
-  vir_bytes buf;
-  size_t nbytes, cum_io;
-  int r, op, fd;
+  int r, op;
   struct filp *f;
   tll_access_t locktype;
 
-  assert(fp->fp_blocked_on == FP_BLOCKED_ON_NONE);
-
-  /*
-   * We take all our needed resumption state from the m_in message, which is
-   * filled by unblock().  Since this is an internal resumption, there is no
-   * need to perform extensive checks on the message fields.
-   */
-  fd = job_m_in.m_lc_vfs_readwrite.fd;
-  buf = job_m_in.m_lc_vfs_readwrite.buf;
-  nbytes = job_m_in.m_lc_vfs_readwrite.len;
-  cum_io = job_m_in.m_lc_vfs_readwrite.cum_io;
-
-  f = fp->fp_filp[fd];
+  f = scratch(fp).file.filp;
   assert(f != NULL);
+  scratch(fp).file.filp = NULL;
 
   locktype = (job_call_nr == VFS_READ) ? VNODE_READ : VNODE_WRITE;
   op = (job_call_nr == VFS_READ) ? READING : WRITING;
   lock_filp(f, locktype);
 
-  r = rw_pipe(op, who_e, f, job_call_nr, fd, buf, nbytes, cum_io);
+  r = rw_pipe(op, who_e, f, scratch(fp).io.io_buffer, scratch(fp).io.io_nbytes);
 
-  if (r != SUSPEND) { /* Do we have results to report? */
-	/* Process is writing, but there is no reader. Send a SIGPIPE signal.
-	 * This should match the corresponding code in read_write().
-	 */
-	if (r == EPIPE && op == WRITING) {
-		if (!(f->filp_flags & O_NOSIGPIPE))
-			sys_kill(fp->fp_endpoint, SIGPIPE);
-	}
-
+  if (r != SUSPEND)  /* Do we have results to report? */
 	replycode(fp->fp_endpoint, r);
-  }
 
   unlock_filp(f);
 }
@@ -296,90 +264,15 @@ static void do_work(void)
 }
 
 /*===========================================================================*
- *				sef_cb_lu_prepare			     *
- *===========================================================================*/
-static int sef_cb_lu_prepare(int state)
-{
-/* This function is called to decide whether we can enter the given live
- * update state, and to prepare for such an update. If we are requested to
- * update to a request-free or protocol-free state, make sure there is no work
- * pending or being processed, and shut down all worker threads.
- */
-
-  switch (state) {
-  case SEF_LU_STATE_REQUEST_FREE:
-  case SEF_LU_STATE_PROTOCOL_FREE:
-	if (!worker_idle()) {
-		printf("VFS: worker threads not idle, blocking update\n");
-		break;
-	}
-
-	worker_cleanup();
-
-	return OK;
-  }
-
-  return ENOTREADY;
-}
-
-/*===========================================================================*
- *			       sef_cb_lu_state_changed			     *
- *===========================================================================*/
-static void sef_cb_lu_state_changed(int old_state, int state)
-{
-/* Worker threads (especially their stacks) pose a serious problem for state
- * transfer during live update, and therefore, we shut down all worker threads
- * during live update and restart them afterwards. This function is called in
- * the old VFS instance when the state changed. We use it to restart worker
- * threads after a failed live update.
- */
-
-  if (state != SEF_LU_STATE_NULL)
-	return;
-
-  switch (old_state) {
-  case SEF_LU_STATE_REQUEST_FREE:
-  case SEF_LU_STATE_PROTOCOL_FREE:
-	worker_init();
-  }
-}
-
-/*===========================================================================*
- *				sef_cb_init_lu				     *
- *===========================================================================*/
-static int sef_cb_init_lu(int type, sef_init_info_t *info)
-{
-/* This function is called in the new VFS instance during a live update. */
-  int r;
-
-  /* Perform regular state transfer. */
-  if ((r = SEF_CB_INIT_LU_DEFAULT(type, info)) != OK)
-	return r;
-
-  /* Recreate worker threads, if necessary. */
-  switch (info->prepare_state) {
-  case SEF_LU_STATE_REQUEST_FREE:
-  case SEF_LU_STATE_PROTOCOL_FREE:
-	worker_init();
-  }
-
-  return OK;
-}
-
-/*===========================================================================*
  *			       sef_local_startup			     *
  *===========================================================================*/
-static void sef_local_startup(void)
+static void sef_local_startup()
 {
   /* Register init callbacks. */
   sef_setcb_init_fresh(sef_cb_init_fresh);
-  sef_setcb_init_restart(SEF_CB_INIT_RESTART_STATEFUL);
+  sef_setcb_init_restart(sef_cb_init_fail);
 
-  /* Register live update callbacks. */
-  sef_setcb_init_lu(sef_cb_init_lu);
-  sef_setcb_lu_prepare(sef_cb_lu_prepare);
-  sef_setcb_lu_state_changed(sef_cb_lu_state_changed);
-  sef_setcb_lu_state_isvalid(sef_cb_lu_state_isvalid_standard);
+  /* No live update support for now. */
 
   /* Let SEF perform startup. */
   sef_startup();
@@ -396,6 +289,7 @@ static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *info)
   message mess;
   struct rprocpub rprocpub[NR_BOOT_PROCS];
 
+  receive_from = ANY;
   self = NULL;
   verbose = 0;
 
@@ -423,6 +317,7 @@ static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *info)
 	rfp->fp_flags = FP_NOFLAGS;
 	rfp->fp_pid = mess.VFS_PM_PID;
 	rfp->fp_endpoint = mess.VFS_PM_ENDPT;
+	rfp->fp_grant = GRANT_INVALID;
 	rfp->fp_blocked_on = FP_BLOCKED_ON_NONE;
 	rfp->fp_realuid = (uid_t) SYS_UID;
 	rfp->fp_effuid = (uid_t) SYS_UID;
@@ -484,8 +379,10 @@ static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *info)
   init_vmnts();			/* init vmnt structures */
   init_select();		/* init select() structures */
   init_filps();			/* Init filp structures */
+  mount_pfs();			/* mount Pipe File Server */
 
-  /* Mount PFS and initial file system root. */
+  /* Mount initial ramdisk as file system root. */
+  receive_from = MFS_PROC_NR;
   worker_start(fproc_addr(VFS_PROC_NR), do_init_root, &mess /*unused*/,
 	FALSE /*use_spare*/);
 
@@ -497,26 +394,15 @@ static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *info)
  *===========================================================================*/
 static void do_init_root(void)
 {
-  char *mount_type, *mount_label;
   int r;
-
-  /* Disallow requests from e.g. init(8) while doing the initial mounting. */
-  worker_allow(FALSE);
-
-  /* Mount the pipe file server. */
-  mount_pfs();
-
-  /* Mount the root file system. */
-  mount_type = "mfs";       /* FIXME: use boot image process name instead */
-  mount_label = "fs_imgrd"; /* FIXME: obtain this from RS */
+  char *mount_type = "mfs"; /* FIXME: use boot image process name instead */
+  char *mount_label = "fs_imgrd"; /* FIXME: obtain this from RS */
 
   r = mount_fs(DEV_IMGRD, "bootramdisk", "/", MFS_PROC_NR, 0, mount_type,
 	mount_label);
   if (r != OK)
 	panic("Failed to initialize root");
-
-  /* All done with mounting, allow requests now. */
-  worker_allow(TRUE);
+  receive_from = ANY;
 }
 
 /*===========================================================================*
@@ -574,34 +460,44 @@ void thread_cleanup(void)
 /*===========================================================================*
  *				get_work				     *
  *===========================================================================*/
-static int get_work(void)
+static void get_work()
 {
-  /* Normally wait for new input.  However, if 'reviving' is nonzero, a
-   * suspended process must be awakened.  Return TRUE if there is a message to
-   * process (usually newly received, but possibly a resumed request), or FALSE
-   * if a thread for other activities has been spawned instead.
+  /* Normally wait for new input.  However, if 'reviving' is
+   * nonzero, a suspended process must be awakened.
    */
-  int r, proc_p;
+  int r, found_one, proc_p;
   register struct fproc *rp;
 
-  if (reviving != 0) {
+  while (reviving != 0) {
+	found_one = FALSE;
+
 	/* Find a suspended process. */
 	for (rp = &fproc[0]; rp < &fproc[NR_PROCS]; rp++)
-		if (rp->fp_pid != PID_FREE && (rp->fp_flags & FP_REVIVED))
-			return unblock(rp); /* So main loop can process job */
+		if (rp->fp_pid != PID_FREE && (rp->fp_flags & FP_REVIVED)) {
+			found_one = TRUE; /* Found a suspended process */
+			if (unblock(rp))
+				return;	/* So main loop can process job */
+			send_work();
+		}
 
-	panic("VFS: get_work couldn't revive anyone");
+	if (!found_one)	/* Consistency error */
+		panic("VFS: get_work couldn't revive anyone");
   }
 
   for(;;) {
 	/* Normal case.  No one to revive. Get a useful request. */
-	if ((r = sef_receive(ANY, &m_in)) != OK) {
+	if ((r = sef_receive(receive_from, &m_in)) != OK) {
 		panic("VFS: sef_receive error: %d", r);
 	}
 
 	proc_p = _ENDPOINT_P(m_in.m_source);
 	if (proc_p < 0 || proc_p >= NR_PROCS) fp = NULL;
 	else fp = &fproc[proc_p];
+
+	if (m_in.m_type == EDEADSRCDST) {
+		printf("VFS: failed ipc_sendrec\n");
+		return;	/* Failed 'ipc_sendrec' */
+	}
 
 	/* Negative who_p is never used to access the fproc array. Negative
 	 * numbers (kernel tasks) are treated in a special way.
@@ -624,9 +520,8 @@ static int get_work(void)
 			fproc[who_p].fp_endpoint, who_e);
 	}
 
-	return TRUE;
+	return;
   }
-  /* NOTREACHED */
 }
 
 /*===========================================================================*
@@ -714,14 +609,6 @@ void service_pm_postponed(void)
 	proc_e = job_m_in.VFS_PM_ENDPT;
 	term_signal = job_m_in.VFS_PM_TERM_SIG;
 	core_path = (vir_bytes) job_m_in.VFS_PM_PATH;
-
-	/* A zero signal used to indicate that a coredump should be generated
-	 * without terminating the target process, but this was broken in so
-	 * many ways that we no longer support this. Userland should implement
-	 * this functionality itself, for example through ptrace(2).
-	 */
-	if (term_signal == 0)
-		panic("no termination signal given for coredump!");
 
 	assert(proc_e == fp->fp_endpoint);
 
@@ -915,8 +802,8 @@ static void service_pm(void)
 /*===========================================================================*
  *				unblock					     *
  *===========================================================================*/
-static int
-unblock(struct fproc *rfp)
+static int unblock(rfp)
+struct fproc *rfp;
 {
 /* Unblock a process that was previously blocked on a pipe or a lock.  This is
  * done by reconstructing the original request and continuing/repeating it.
@@ -930,31 +817,33 @@ unblock(struct fproc *rfp)
   /* Reconstruct the original request from the saved data. */
   memset(&m_in, 0, sizeof(m_in));
   m_in.m_source = rfp->fp_endpoint;
-  switch (blocked_on) {
-  case FP_BLOCKED_ON_PIPE:
-	assert(rfp->fp_pipe.callnr == VFS_READ ||
-	    rfp->fp_pipe.callnr == VFS_WRITE);
-	m_in.m_type = rfp->fp_pipe.callnr;
-	m_in.m_lc_vfs_readwrite.fd = rfp->fp_pipe.fd;
-	m_in.m_lc_vfs_readwrite.buf = rfp->fp_pipe.buf;
-	m_in.m_lc_vfs_readwrite.len = rfp->fp_pipe.nbytes;
-	m_in.m_lc_vfs_readwrite.cum_io = rfp->fp_pipe.cum_io;
+  m_in.m_type = rfp->fp_block_callnr;
+  switch (m_in.m_type) {
+  case VFS_READ:
+  case VFS_WRITE:
+	assert(blocked_on == FP_BLOCKED_ON_PIPE);
+	m_in.m_lc_vfs_readwrite.fd = scratch(rfp).file.fd_nr;
+	m_in.m_lc_vfs_readwrite.buf = scratch(rfp).io.io_buffer;
+	m_in.m_lc_vfs_readwrite.len = scratch(rfp).io.io_nbytes;
 	break;
-  case FP_BLOCKED_ON_FLOCK:
-	assert(rfp->fp_flock.cmd == F_SETLKW);
-	m_in.m_type = VFS_FCNTL;
-	m_in.m_lc_vfs_fcntl.fd = rfp->fp_flock.fd;
-	m_in.m_lc_vfs_fcntl.cmd = rfp->fp_flock.cmd;
-	m_in.m_lc_vfs_fcntl.arg_ptr = rfp->fp_flock.arg;
+  case VFS_FCNTL:
+	assert(blocked_on == FP_BLOCKED_ON_LOCK);
+	m_in.m_lc_vfs_fcntl.fd = scratch(rfp).file.fd_nr;
+	m_in.m_lc_vfs_fcntl.cmd = scratch(rfp).io.io_nbytes;
+	m_in.m_lc_vfs_fcntl.arg_ptr = scratch(rfp).io.io_buffer;
+	assert(m_in.m_lc_vfs_fcntl.cmd == F_SETLKW);
 	break;
   default:
-	panic("unblocking call blocked on %d ??", blocked_on);
+	panic("unblocking call %d blocked on %d ??", m_in.m_type, blocked_on);
   }
 
   rfp->fp_blocked_on = FP_BLOCKED_ON_NONE;	/* no longer blocked */
   rfp->fp_flags &= ~FP_REVIVED;
   reviving--;
   assert(reviving >= 0);
+
+  /* This should not be device I/O. If it is, it'll 'leak' grants. */
+  assert(!GRANT_VALID(rfp->fp_grant));
 
   /* Pending pipe reads/writes cannot be repeated as is, and thus require a
    * special resumption procedure.

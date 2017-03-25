@@ -1,4 +1,4 @@
 PROG=	screendump
-MAN=	screendump.8
+MAN=
 
 .include <bsd.prog.mk>

@@ -98,7 +98,7 @@ void blockdriver_announce(int type)
   int r;
   char key[DS_MAX_KEYLEN];
   char label[DS_MAX_KEYLEN];
-  const char *driver_prefix = "drv.blk.";
+  char *driver_prefix = "drv.blk.";
 
   /* Callers are allowed to use ipc_sendrec to communicate with drivers.
    * For this reason, there may blocked callers when a driver restarts.
@@ -106,7 +106,7 @@ void blockdriver_announce(int type)
    * will not restart statefully, and thus will skip this code.
    */
   if (type == SEF_INIT_RESTART) {
-	if ((r = sys_statectl(SYS_STATE_CLEAR_IPC_REFS, 0, 0)) != OK)
+	if ((r = sys_statectl(SYS_STATE_CLEAR_IPC_REFS)) != OK)
 		panic("blockdriver_init: sys_statectl failed: %d", r);
   }
 
@@ -223,9 +223,9 @@ static int do_vrdwt(struct blockdriver *bdp, message *mp, thread_id_t id)
 {
 /* Carry out an device read or write to/from a vector of buffers. */
   iovec_t iovec[NR_IOREQS];
-  unsigned int i, nr_req;
+  unsigned int nr_req;
   u64_t position;
-  int do_write;
+  int i, do_write;
   ssize_t r, size;
 
   /* Copy the vector from the caller to kernel space. */
@@ -260,7 +260,7 @@ static int do_vrdwt(struct blockdriver *bdp, message *mp, thread_id_t id)
 /*===========================================================================*
  *				do_dioctl				     *
  *===========================================================================*/
-static int do_dioctl(struct blockdriver *bdp, devminor_t minor,
+static int do_dioctl(struct blockdriver *bdp, dev_t minor,
   unsigned long request, endpoint_t endpt, cp_grant_id_t grant)
 {
 /* Carry out a disk-specific I/O control request. */
@@ -316,7 +316,7 @@ static int do_ioctl(struct blockdriver *bdp, message *mp)
  * to the tracing module, and handle setting/getting partitions when the driver
  * has specified that it is a disk driver.
  */
-  devminor_t minor;
+  dev_t minor;
   unsigned long request;
   cp_grant_id_t grant;
   endpoint_t user_endpt;

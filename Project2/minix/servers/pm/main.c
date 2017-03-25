@@ -25,6 +25,7 @@
 #include <sys/utsname.h>
 #include <sys/wait.h>
 #include <machine/archtypes.h>
+#include <env.h>
 #include <assert.h>
 #include "mproc.h"
 
@@ -46,8 +47,7 @@ static int sef_cb_init_fresh(int type, sef_init_info_t *info);
 /*===========================================================================*
  *				main					     *
  *===========================================================================*/
-int
-main(void)
+int main()
 {
 /* Main routine of the process manager. */
   unsigned int call_index;
@@ -86,8 +86,6 @@ main(void)
 		handle_vfs_reply();
 
 		result = SUSPEND;		/* don't reply */
-	} else if (call_nr == PROC_EVENT_REPLY) {
-		result = do_proc_event_reply();
 	} else if (IS_PM_CALL(call_nr)) {
 		/* If the system call number is valid, perform the call. */
 		call_index = (unsigned int) (call_nr - PM_BASE);
@@ -112,12 +110,13 @@ main(void)
 /*===========================================================================*
  *			       sef_local_startup			     *
  *===========================================================================*/
-static void
-sef_local_startup(void)
+static void sef_local_startup()
 {
   /* Register init callbacks. */
   sef_setcb_init_fresh(sef_cb_init_fresh);
-  sef_setcb_init_restart(SEF_CB_INIT_RESTART_STATEFUL);
+  sef_setcb_init_restart(sef_cb_init_fail);
+
+  /* No live update support for now. */
 
   /* Register signal callbacks. */
   sef_setcb_signal_manager(process_ksig);
@@ -138,7 +137,7 @@ static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *UNUSED(info))
   static char core_sigs[] = { SIGQUIT, SIGILL, SIGTRAP, SIGABRT,
 				SIGEMT, SIGFPE, SIGBUS, SIGSEGV };
   static char ign_sigs[] = { SIGCHLD, SIGWINCH, SIGCONT, SIGINFO };
-  static char noign_sigs[] = { SIGILL, SIGTRAP, SIGEMT, SIGFPE,
+  static char noign_sigs[] = { SIGILL, SIGTRAP, SIGEMT, SIGFPE, 
 				SIGBUS, SIGSEGV };
   register struct mproc *rmp;
   register char *sig_ptr;
@@ -148,8 +147,6 @@ static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *UNUSED(info))
   for (rmp=&mproc[0]; rmp<&mproc[NR_PROCS]; rmp++) {
 	init_timer(&rmp->mp_timer);
 	rmp->mp_magic = MP_MAGIC;
-	rmp->mp_sigact = mpsigact[rmp - mproc];
-	rmp->mp_eventsub = NO_EVENTSUB;
   }
 
   /* Build the set of signals which cause core dumps, and the set of signals
@@ -170,10 +167,10 @@ static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *UNUSED(info))
   if ((s=sys_getmonparams(monitor_params, sizeof(monitor_params))) != OK)
       panic("get monitor params failed: %d", s);
 
-  /* Initialize PM's process table. Request a copy of the system image table
+  /* Initialize PM's process table. Request a copy of the system image table 
    * that is defined at the kernel level to see which slots to fill in.
    */
-  if (OK != (s=sys_getimage(image)))
+  if (OK != (s=sys_getimage(image))) 
   	panic("couldn't get image table: %d", s);
   procs_in_use = 0;				/* start populating table */
   for (ip = &image[0]; ip < &image[NR_BOOT_PROCS]; ip++) {
@@ -181,20 +178,20 @@ static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *UNUSED(info))
   		procs_in_use += 1;		/* found user process */
 
 		/* Set process details found in the image table. */
-		rmp = &mproc[ip->proc_nr];
-  		strlcpy(rmp->mp_name, ip->proc_name, PROC_NAME_LEN);
-  		(void) sigemptyset(&rmp->mp_ignore);
+		rmp = &mproc[ip->proc_nr];	
+  		strlcpy(rmp->mp_name, ip->proc_name, PROC_NAME_LEN); 
+  		(void) sigemptyset(&rmp->mp_ignore);	
   		(void) sigemptyset(&rmp->mp_sigmask);
   		(void) sigemptyset(&rmp->mp_catch);
 		if (ip->proc_nr == INIT_PROC_NR) {	/* user process */
   			/* INIT is root, we make it father of itself. This is
   			 * not really OK, INIT should have no father, i.e.
-  			 * a father with pid NO_PID. But PM currently assumes
+  			 * a father with pid NO_PID. But PM currently assumes 
   			 * that mp_parent always points to a valid slot number.
   			 */
   			rmp->mp_parent = INIT_PROC_NR;
   			rmp->mp_procgrp = rmp->mp_pid = INIT_PID;
-			rmp->mp_flags |= IN_USE;
+			rmp->mp_flags |= IN_USE; 
 
 			/* Set scheduling info */
 			rmp->mp_scheduler = KERNEL;
@@ -247,11 +244,9 @@ static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *UNUSED(info))
 /*===========================================================================*
  *				reply					     *
  *===========================================================================*/
-void
-reply(
-	int proc_nr,			/* process to reply to */
-	int result			/* result of call (usually OK or error #) */
-)
+void reply(proc_nr, result)
+int proc_nr;			/* process to reply to */
+int result;			/* result of call (usually OK or error #) */
 {
 /* Send a reply to a user process.  System calls may occasionally fill in other
  * fields, this is only for the main return value and for sending the reply.
@@ -273,16 +268,14 @@ reply(
 /*===========================================================================*
  *				get_nice_value				     *
  *===========================================================================*/
-static int
-get_nice_value(
-	int queue				/* store mem chunks here */
-)
+static int get_nice_value(queue)
+int queue;				/* store mem chunks here */
 {
 /* Processes in the boot image have a priority assigned. The PM doesn't know
- * about priorities, but uses 'nice' values instead. The priority is between
+ * about priorities, but uses 'nice' values instead. The priority is between 
  * MIN_USER_Q and MAX_USER_Q. We have to scale between PRIO_MIN and PRIO_MAX.
- */
-  int nice_val = (queue - USER_Q) * (PRIO_MAX-PRIO_MIN+1) /
+ */ 
+  int nice_val = (queue - USER_Q) * (PRIO_MAX-PRIO_MIN+1) / 
       (MIN_USER_Q-MAX_USER_Q+1);
   if (nice_val > PRIO_MAX) nice_val = PRIO_MAX;	/* shouldn't happen */
   if (nice_val < PRIO_MIN) nice_val = PRIO_MIN;	/* shouldn't happen */
@@ -292,8 +285,7 @@ get_nice_value(
 /*===========================================================================*
  *				handle_vfs_reply       			     *
  *===========================================================================*/
-static void
-handle_vfs_reply(void)
+static void handle_vfs_reply()
 {
   struct mproc *rmp;
   endpoint_t proc_e;
@@ -354,18 +346,18 @@ handle_vfs_reply(void)
 
 	break;
 
+  case VFS_PM_EXIT_REPLY:
+	exit_restart(rmp, FALSE /*dump_core*/);
+
+	break;
+
   case VFS_PM_CORE_REPLY:
 	if (m_in.VFS_PM_STATUS == OK)
 		rmp->mp_sigstatus |= WCOREFLAG;
 
-	/* FALLTHROUGH */
-  case VFS_PM_EXIT_REPLY:
-	assert(rmp->mp_flags & EXITING);
+	exit_restart(rmp, TRUE /*dump_core*/);
 
-	/* Publish the exit event. Continue exiting the process after that. */
-	publish_event(rmp);
-
-	return; /* do not take the default action */
+	break;
 
   case VFS_PM_FORK_REPLY:
 	/* Schedule the newly created process ... */
@@ -410,10 +402,7 @@ handle_vfs_reply(void)
 	/* Process is now unpaused */
 	rmp->mp_flags |= UNPAUSED;
 
-	/* Publish the signal event. Continue with signals only after that. */
-	publish_event(rmp);
-
-	return; /* do not take the default action */
+	break;
 
   default:
 	panic("handle_vfs_reply: unknown reply code: %d", call_nr);

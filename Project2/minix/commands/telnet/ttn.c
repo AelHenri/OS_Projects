@@ -21,7 +21,6 @@ ttn.c
 #include <netdb.h>
 #include <net/gen/tcp.h>
 #include <net/gen/tcp_io.h>
-#include <arpa/inet.h>
 #include "ttn.h"
 
 #if __STDC__
@@ -123,7 +122,7 @@ int main(int argc, char *argv[])
 	}
 
 	fprintf(stderr, "Connecting to %s:%u...\n",
-		inet_ntoa(*(struct in_addr *)&host), ntohs(port));
+		inet_ntoa(host), ntohs(port));
 
 	tcp_device= getenv("TCP_DEVICE");
 	if (tcp_device == NULL)

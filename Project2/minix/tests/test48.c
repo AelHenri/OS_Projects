@@ -315,7 +315,7 @@ static struct
 	{ "255.0.0.0",      0xff000000, 1, 0, 0, 0                 },
 	{ "127.0.0.1",      0x7f000001, 1, 0, 0, 0                 },
 	{ "localhost",      0x7f000001, 0, 1, 0, 0,                },
-	{ "test48.minix3.org", 0x7f010203, 0, 1, 1, 0,             },
+	{ "static.minix3.org",     0xC023C00A, 0, 1, 1, 0,                },
 	{ "",               0x00000000, 1, 0, 0, (1<<EAI_NONAME)|(1<<EAI_FAIL)|(1<<EAI_NODATA)},
 	{ "256.256.256.256",0x00000000, 1, 0, 0, (1<<EAI_NONAME)|(1<<EAI_FAIL)|(1<<EAI_NODATA)},
 	{ "minix3.example.com",     0x00000000, 0, 0, 1, (1<<EAI_NONAME)|(1<<EAI_FAIL)|(1<<EAI_NODATA)}};
@@ -367,7 +367,7 @@ static struct
 static void test_getaddrinfo_all(int use_network)
 {
 	int flag_PASSIVE, flag_CANONNAME, flag_NUMERICHOST, flag_NUMERICSERV;
-	int exp_results, flags, flagcount, i, j, k, l, passhints;
+	int exp_results, flags, i, j, k, l, passhints;
 	unsigned long ipaddr;
 
 	/* loop through various parameter values */
@@ -381,11 +381,6 @@ static void test_getaddrinfo_all(int use_network)
 	for (flag_NUMERICSERV = 0; flag_NUMERICSERV < 2; flag_NUMERICSERV++)
 	for (passhints = 0; passhints < 2; passhints++)
 	{
-		/* skip some redundant combinations */
-		flagcount = flag_PASSIVE + flag_CANONNAME +
-			flag_NUMERICHOST + flag_NUMERICSERV;
-		if (flagcount > 1 && flagcount < 4) continue;
-
 		/* skip tests that need but cannot use network */
 		if (!use_network && hosts[i].need_network)
 			continue;
@@ -495,7 +490,7 @@ static int buflens[] = { 0, 1, 2, 3, 4, 5, 6, 9, 10, 11, 255 };
 static void test_getnameinfo_all(void)
 {
 	int flag_NUMERICHOST, flag_NAMEREQD, flag_NUMERICSERV, flag_DGRAM;
-	int exp_results, flagcount, flags, i, j, k, l;
+	int exp_results, flags, i, j, k, l, socktypemismatch;
 	const char *nodename, *servname;
 
 	/* set ports servent structs */
@@ -535,13 +530,6 @@ static void test_getnameinfo_all(void)
 	for (flag_NUMERICSERV = 0; flag_NUMERICSERV < 2; flag_NUMERICSERV++)
 	for (flag_DGRAM       = 0; flag_DGRAM < 2;       flag_DGRAM++)
 	{
-		/* skip some redundant combinations */
-		flagcount = flag_NUMERICHOST + flag_NAMEREQD +
-			flag_NUMERICSERV + flag_DGRAM;
-		if (flagcount > 1 && flagcount < 4) continue;
-		if (k > 1 && k < LENGTH(buflens) - 2 &&
-			l > 1 && l < LENGTH(buflens) - 2) continue;
-
 		/* determine flags */
 		flags = (flag_NUMERICHOST ? NI_NUMERICHOST : 0) |
 			(flag_NAMEREQD    ? NI_NAMEREQD : 0) |
@@ -554,6 +542,10 @@ static void test_getnameinfo_all(void)
 		nodename = flag_NUMERICHOST ? ipaddrs[i].nodenum : ipaddrs[i].nodename;
 		if (buflens[k] > 0 && buflens[k] <= strlen(nodename))
 			exp_results |= (1 << EAI_OVERFLOW) | (1 << EAI_MEMORY);
+
+		socktypemismatch =
+			(flag_DGRAM && ports[j].socktype == SOCK_STREAM) ||
+			(!flag_DGRAM && ports[j].socktype == SOCK_DGRAM);
 
 		struct servent *se = flag_DGRAM ? ports[j].se_udp : ports[j].se_tcp;
 
@@ -583,13 +575,30 @@ static void test_getnameinfo_all(void)
 	}
 }
 
+static int can_use_network(void)
+{
+	int status;
+
+	/* try to ping minix3.org */
+	status = system("ping -w 5 www.minix3.org > /dev/null 2>&1");
+	if (status == 127)
+	{
+		printf("cannot execute ping\n");
+		err();
+	}
+
+	return status == 0;
+}
+
 int main(void)
 {
 	int use_network;
 
 	start(48);
 
-	use_network = get_setting_use_network();
+	use_network = can_use_network();
+	if (!use_network)
+		printf("Warning: no network\n");
 	test_getaddrinfo_all(use_network);
 	test_getnameinfo_all();
 

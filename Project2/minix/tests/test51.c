@@ -197,14 +197,14 @@ void verify_main_reenter(void)
 }
 
 int set_context_test_value;
-static void set_context_test_thread1(void){
+void set_context_test_thread1(void){
 	set_context_test_value |= 0x1;
 	setcontext(&ctx[2]);
 	err(1, 24);
 
 }
 
-static void set_context_test_thread2(void){
+void set_context_test_thread2(void){
 	set_context_test_value |= 0x1 << 1;
 	setcontext(&ctx[0]);
 	err(1, 23);

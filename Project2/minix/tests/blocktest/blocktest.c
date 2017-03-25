@@ -107,7 +107,7 @@ static void *alloc_dma_memory(size_t size)
 			MAP_PREALLOC | MAP_ANON, -1, 0);
 
 	if (ptr == MAP_FAILED)
-		panic("unable to allocate %zu bytes of memory", size);
+		panic("unable to allocate %d bytes of memory", size);
 
 	return ptr;
 }
@@ -318,7 +318,7 @@ static void raw_xfer(dev_t minor, u64_t pos, iovec_s_t *iovec, int nr_req,
 
 	r = sendrec_driver(&m, exp, res);
 
-	if (cpf_revoke(grant) == -1)
+	if (cpf_revoke(grant) != OK)
 		panic("unable to revoke grant");
 
 	if (r != RESULT_OK)
@@ -359,7 +359,7 @@ static void vir_xfer(dev_t minor, u64_t pos, iovec_t *iovec, int nr_req,
 	for (i = 0; i < nr_req; i++) {
 		iovec[i].iov_size = iov_s[i].iov_size;
 
-		if (cpf_revoke(iov_s[i].iov_grant) == -1)
+		if (cpf_revoke(iov_s[i].iov_grant) != OK)
 			panic("unable to revoke grant");
 	}
 }
@@ -1152,7 +1152,7 @@ static void close_device(dev_t minor)
 		"closing a subpartition");
 }
 
-static int vir_ioctl(dev_t minor, unsigned long req, void *ptr, ssize_t exp,
+static int vir_ioctl(dev_t minor, int req, void *ptr, ssize_t exp,
 	result_t *res)
 {
 	/* Perform an I/O control request, using a local buffer.
@@ -1181,7 +1181,7 @@ static int vir_ioctl(dev_t minor, unsigned long req, void *ptr, ssize_t exp,
 
 	r = sendrec_driver(&m, exp, res);
 
-	if (cpf_revoke(grant) == -1)
+	if (cpf_revoke(grant) != OK)
 		panic("unable to revoke grant");
 
 	return r;
@@ -2674,6 +2674,8 @@ static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *UNUSED(info))
 {
 	/* Initialize.
 	 */
+	int r;
+	clock_t now;
 
 	if (env_argc > 1)
 		optset_parse(optset_table, env_argv[1]);
@@ -2687,7 +2689,10 @@ static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *UNUSED(info))
 	if (driver_minor > 255)
 		panic("invalid or no driver minor given");
 
-	srand48(getticks());
+	if ((r = getticks(&now)) != OK)
+		panic("unable to get uptime: %d", r);
+
+	srand48(now);
 
 	output("BLOCKTEST: driver label '%s' (endpt %d), minor %d\n",
 		driver_label, driver_endpt, driver_minor);

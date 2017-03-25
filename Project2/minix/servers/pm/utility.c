@@ -7,7 +7,6 @@
  *   nice_to_priority	convert nice level to priority queue
  *   pm_isokendpt:	check the validity of an endpoint
  *   tell_vfs:		send a request to VFS on behalf of a process
- *   set_rusage_times:	store user and system times in rusage structure
  */
 
 #include "pm.h"
@@ -39,7 +38,7 @@ pid_t get_free_pid()
 
   /* Find a free pid for the child and put it in the table. */
   do {
-	t = 0;
+	t = 0;			
 	next_pid = (next_pid < NR_PIDS ? next_pid + 1 : INIT_PID + 1);
 	for (rmp = &mproc[0]; rmp < &mproc[NR_PROCS]; rmp++)
 		if (rmp->mp_pid == next_pid || rmp->mp_procgrp == next_pid) {
@@ -53,8 +52,8 @@ pid_t get_free_pid()
 /*===========================================================================*
  *				find_param				     *
  *===========================================================================*/
-char *
-find_param(const char *name)
+char *find_param(name)
+const char *name;
 {
   register const char *namep;
   register char *envp;
@@ -62,7 +61,7 @@ find_param(const char *name)
   for (envp = (char *) monitor_params; *envp != 0;) {
 	for (namep = name; *namep != 0 && *namep == *envp; namep++, envp++)
 		;
-	if (*namep == '\0' && *envp == '=')
+	if (*namep == '\0' && *envp == '=') 
 		return(envp + 1);
 	while (*envp++ != 0)
 		;
@@ -128,7 +127,7 @@ message *m_ptr;
  */
   int r;
 
-  if (rmp->mp_flags & (VFS_CALL | EVENT_CALL))
+  if (rmp->mp_flags & VFS_CALL)
 	panic("tell_vfs: not idle: %d", m_ptr->m_type);
 
   r = asynsend3(VFS_PROC_NR, m_ptr, AMF_NOREPLY);
@@ -136,21 +135,4 @@ message *m_ptr;
   	panic("unable to send to VFS: %d", r);
 
   rmp->mp_flags |= VFS_CALL;
-}
-
-/*===========================================================================*
- *				set_rusage_times		 	     *
- *===========================================================================*/
-void
-set_rusage_times(struct rusage * r_usage, clock_t user_time, clock_t sys_time)
-{
-	u64_t usec;
-
-	usec = user_time * 1000000 / sys_hz();
-	r_usage->ru_utime.tv_sec = usec / 1000000;
-	r_usage->ru_utime.tv_usec = usec % 1000000;
-
-	usec = sys_time * 1000000 / sys_hz();
-	r_usage->ru_stime.tv_sec = usec / 1000000;
-	r_usage->ru_stime.tv_usec = usec % 1000000;
 }

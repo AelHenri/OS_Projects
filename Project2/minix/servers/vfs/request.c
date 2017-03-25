@@ -29,7 +29,7 @@
  *===========================================================================*/
 static int req_breadwrite_actual(endpoint_t fs_e, endpoint_t user_e, dev_t dev, off_t pos,
         unsigned int num_of_bytes, vir_bytes user_addr, int rw_flag,
-        off_t *new_pos, size_t *cum_iop, int cpflag)
+        off_t *new_pos, unsigned int *cum_iop, int cpflag)
 {
   int r;
   cp_grant_id_t grant_id;
@@ -49,9 +49,7 @@ static int req_breadwrite_actual(endpoint_t fs_e, endpoint_t user_e, dev_t dev, 
 
   /* Send/rec request */
   r = fs_sendrec(fs_e, &m);
-
-  if (cpf_revoke(grant_id) == GRANT_FAULTED) return(ERESTART);
-
+  cpf_revoke(grant_id);
   if (r != OK) return(r);
 
   /* Fill in response structure */
@@ -63,14 +61,14 @@ static int req_breadwrite_actual(endpoint_t fs_e, endpoint_t user_e, dev_t dev, 
 
 int req_breadwrite(endpoint_t fs_e, endpoint_t user_e, dev_t dev, off_t pos,
         unsigned int num_of_bytes, vir_bytes user_addr, int rw_flag,
-        off_t *new_pos, size_t *cum_iop)
+        off_t *new_pos, unsigned int *cum_iop)
 {
 	int r;
 
 	r = req_breadwrite_actual(fs_e, user_e, dev, pos, num_of_bytes,
 		user_addr, rw_flag, new_pos, cum_iop, CPF_TRY);
 
-	if (r == ERESTART) {
+	if(r == EFAULT) {
 		if((r=vm_vfs_procctl_handlemem(user_e, user_addr, num_of_bytes,
 			rw_flag == READING)) != OK) {
 			return r;
@@ -177,9 +175,9 @@ int req_create(
   cp_grant_id_t grant_id;
   size_t len;
   message m;
-//  struct vmnt *vmp;
+  struct vmnt *vmp;
 
-//  vmp = find_vmnt(fs_e);
+  vmp = find_vmnt(fs_e);
 
   len = strlen(path) + 1;
   grant_id = cpf_grant_direct(fs_e, (vir_bytes) path, len, CPF_READ);
@@ -326,8 +324,7 @@ static int req_getdents_actual(
   }
 
   r = fs_sendrec(fs_e, &m);
-
-  if (cpf_revoke(grant_id) == GRANT_FAULTED) return(ERESTART);
+  cpf_revoke(grant_id);
 
   if (r == OK) {
 	*new_pos = m.m_fs_vfs_getdents.seek_pos;
@@ -354,9 +351,7 @@ int req_getdents(
 	r = req_getdents_actual(fs_e, inode_nr, pos, buf, size, new_pos,
 		direct, CPF_TRY);
 
-	if (r == ERESTART) {
-		assert(!direct);
-
+	if(r == EFAULT && !direct) {
 		if((r=vm_vfs_procctl_handlemem(who_e, buf, size, 1)) != OK) {
 			return r;
 		}
@@ -436,10 +431,10 @@ int req_lookup(
   vfs_ucred_t credentials;
   int r, flags;
   size_t len;
-//  struct vmnt *vmp;
+  struct vmnt *vmp;
   cp_grant_id_t grant_id=0, grant_id2=0;
 
-//  vmp = find_vmnt(fs_e);
+  vmp = find_vmnt(fs_e);
 
   grant_id = cpf_grant_direct(fs_e, (vir_bytes) resolve->l_path, PATH_MAX,
 			      CPF_READ | CPF_WRITE);
@@ -630,11 +625,11 @@ int req_newnode(
   struct node_details *res
 )
 {
-//  struct vmnt *vmp;
+  struct vmnt *vmp;
   int r;
   message m;
 
-//  vmp = find_vmnt(fs_e);
+  vmp = find_vmnt(fs_e);
 
   /* Fill in request message */
   m.m_type = REQ_NEWNODE;
@@ -696,8 +691,10 @@ int req_newdriver(
 /*===========================================================================*
  *				req_putnode				     *
  *===========================================================================*/
-int
-req_putnode(int fs_e, ino_t inode_nr, int count)
+int req_putnode(fs_e, inode_nr, count)
+int fs_e;
+ino_t inode_nr;
+int count;
 {
   message m;
 
@@ -739,8 +736,7 @@ static int req_rdlink_actual(endpoint_t fs_e, ino_t inode_nr,
 
   /* Send/rec request */
   r = fs_sendrec(fs_e, &m);
-
-  if (cpf_revoke(grant_id) == GRANT_FAULTED) return(ERESTART);
+  cpf_revoke(grant_id);
 
   if (r == OK) r = m.m_fs_vfs_rdlink.nbytes;
 
@@ -760,9 +756,7 @@ int req_rdlink(endpoint_t fs_e, ino_t inode_nr, endpoint_t proc_e,
 	r = req_rdlink_actual(fs_e, inode_nr, proc_e, buf, len, direct,
 		CPF_TRY);
 
-	if (r == ERESTART) {
-		assert(!direct);
-
+	if(r == EFAULT && !direct) {
 		if((r=vm_vfs_procctl_handlemem(proc_e, buf, len, 1)) != OK) {
 			return r;
 		}
@@ -860,8 +854,7 @@ static int req_readwrite_actual(endpoint_t fs_e, ino_t inode_nr, off_t pos,
 
   /* Send/rec request */
   r = fs_sendrec(fs_e, &m);
-
-  if (cpf_revoke(grant_id) == GRANT_FAULTED) return(ERESTART);
+  cpf_revoke(grant_id);
 
   if (r == OK) {
 	/* Fill in response structure */
@@ -877,16 +870,16 @@ static int req_readwrite_actual(endpoint_t fs_e, ino_t inode_nr, off_t pos,
  *===========================================================================*/
 int req_readwrite(endpoint_t fs_e, ino_t inode_nr, off_t pos,
 	int rw_flag, endpoint_t user_e, vir_bytes user_addr,
-	unsigned int num_of_bytes, off_t *new_posp, size_t *cum_iop)
+	unsigned int num_of_bytes, off_t *new_posp, unsigned int *cum_iop)
 {
 	int r;
 
 	r = req_readwrite_actual(fs_e, inode_nr, pos, rw_flag, user_e,
 		user_addr, num_of_bytes, new_posp, cum_iop, CPF_TRY);
 
-	if (r == ERESTART) {
-		if ((r=vm_vfs_procctl_handlemem(user_e, (vir_bytes) user_addr,
-		    num_of_bytes, rw_flag == READING)) != OK) {
+	if(r == EFAULT) {
+		if((r=vm_vfs_procctl_handlemem(user_e, (vir_bytes) user_addr, num_of_bytes,
+			rw_flag == READING)) != OK) {
 			return r;
 		}
 
@@ -923,8 +916,12 @@ int req_peek(endpoint_t fs_e, ino_t inode_nr, off_t pos, unsigned int bytes)
 /*===========================================================================*
  *				req_rename	     			     *
  *===========================================================================*/
-int
-req_rename(endpoint_t fs_e, ino_t old_dir, char *old_name, ino_t new_dir, char *new_name)
+int req_rename(fs_e, old_dir, old_name, new_dir, new_name)
+endpoint_t fs_e;
+ino_t old_dir;
+char *old_name;
+ino_t new_dir;
+char *new_name;
 {
   int r;
   cp_grant_id_t gid_old, gid_new;
@@ -963,8 +960,10 @@ req_rename(endpoint_t fs_e, ino_t old_dir, char *old_name, ino_t new_dir, char *
 /*===========================================================================*
  *				req_rmdir	      			     *
  *===========================================================================*/
-int
-req_rmdir(endpoint_t fs_e, ino_t inode_nr, char *lastc)
+int req_rmdir(fs_e, inode_nr, lastc)
+endpoint_t fs_e;
+ino_t inode_nr;
+char *lastc;
 {
   int r;
   cp_grant_id_t grant_id;
@@ -1035,9 +1034,8 @@ static int req_slink_actual(
 
   /* Send/rec request */
   r = fs_sendrec(fs_e, &m);
-
   cpf_revoke(gid_name);
-  if (cpf_revoke(gid_buf) == GRANT_FAULTED) return(ERESTART);
+  cpf_revoke(gid_buf);
 
   return(r);
 }
@@ -1061,7 +1059,7 @@ int req_slink(
 	r = req_slink_actual(fs_e, inode_nr, lastc, proc_e, path_addr,
 		path_length, uid, gid, CPF_TRY);
 
-	if (r == ERESTART) {
+	if(r == EFAULT) {
 		if((r=vm_vfs_procctl_handlemem(proc_e, (vir_bytes) path_addr,
 			path_length, 0)) != OK) {
 			return r;
@@ -1098,8 +1096,7 @@ int req_stat_actual(endpoint_t fs_e, ino_t inode_nr, endpoint_t proc_e,
 
   /* Send/rec request */
   r = fs_sendrec(fs_e, &m);
-
-  if (cpf_revoke(grant_id) == GRANT_FAULTED) return(ERESTART);
+  cpf_revoke(grant_id);
 
   return(r);
 }
@@ -1115,7 +1112,7 @@ int req_stat(endpoint_t fs_e, ino_t inode_nr, endpoint_t proc_e,
 
 	r = req_stat_actual(fs_e, inode_nr, proc_e, buf, CPF_TRY);
 
-	if (r == ERESTART) {
+	if(r == EFAULT) {
 		if((r=vm_vfs_procctl_handlemem(proc_e, (vir_bytes) buf,
 			sizeof(struct stat), 1)) != OK) {
 			return r;
@@ -1130,8 +1127,8 @@ int req_stat(endpoint_t fs_e, ino_t inode_nr, endpoint_t proc_e,
 /*===========================================================================*
  *				req_sync	       			     *
  *===========================================================================*/
-int
-req_sync(endpoint_t fs_e)
+int req_sync(fs_e)
+endpoint_t fs_e;
 {
   message m;
 
@@ -1146,8 +1143,10 @@ req_sync(endpoint_t fs_e)
 /*===========================================================================*
  *				req_unlink	     			     *
  *===========================================================================*/
-int
-req_unlink(endpoint_t fs_e, ino_t inode_nr, char *lastc)
+int req_unlink(fs_e, inode_nr, lastc)
+endpoint_t fs_e;
+ino_t inode_nr;
+char *lastc;
 {
   cp_grant_id_t grant_id;
   size_t len;
@@ -1176,8 +1175,8 @@ req_unlink(endpoint_t fs_e, ino_t inode_nr, char *lastc)
 /*===========================================================================*
  *				req_unmount	    			     *
  *===========================================================================*/
-int
-req_unmount(endpoint_t fs_e)
+int req_unmount(fs_e)
+endpoint_t fs_e;
 {
   message m;
 

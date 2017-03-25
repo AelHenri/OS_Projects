@@ -6,4 +6,8 @@ LDADD+= -lasyn -lterminfo
 
 BINDIR?=/usr/bin
 
+# BJG too many warnings here
+NOGCCERROR?=    yes
+NOCLANGERROR?=  yes
+
 .include "../Makefile.inc"

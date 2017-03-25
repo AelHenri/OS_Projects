@@ -1,9 +1,8 @@
 # Makefile for VMware Host/Guest File System (HGFS) server
 PROG=	hgfs
 SRCS=	hgfs.c
-MAN=	hgfs.8
 
-DPADD+=	${LIBSFFS} ${LIBHGFS} ${LIBFSDRIVER} ${LIBSYS}
-LDADD+=	-lsffs -lhgfs -lfsdriver -lsys
+DPADD+=	${LIBSFFS} ${LIBHGFS} ${LIBSYS}
+LDADD+=	-lsffs -lhgfs -lsys
 
 .include <minix.service.mk>

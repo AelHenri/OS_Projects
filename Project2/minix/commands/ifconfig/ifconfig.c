@@ -17,7 +17,6 @@ ifconfig.c
 #include <net/gen/in.h>
 #include <net/gen/ip_io.h>
 #include <net/gen/inet.h>
-#include <arpa/inet.h>
 
 #if __STDC__
 #define PROTO(x,y) x y
@@ -37,7 +36,6 @@ PROTO (int main, (int argc, char *argv[]) );
 
 char *prog_name;
 
-int
 main(argc, argv)
 int argc;
 char *argv[];
@@ -169,14 +167,12 @@ char *argv[];
 			else
 			{
 				printf("%s: address %s", device_s,
-					inet_ntoa(*(struct in_addr *)
-					    &ipconf.nwic_ipaddr));
+					inet_ntoa(ipconf.nwic_ipaddr));
 
 				if (ipconf.nwic_flags & NWIC_NETMASK_SET)
 				{
 					printf(" netmask %s",
-						inet_ntoa(*(struct in_addr *)
-						    &ipconf.nwic_netmask));
+						inet_ntoa(ipconf.nwic_netmask));
 				}
 #ifdef NWIC_MTU_SET
 				if (ipconf.nwic_mtu)

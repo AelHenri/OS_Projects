@@ -13,7 +13,6 @@
 #include <sys/time.h>
 #include <minix/com.h>
 #include <minix/callnr.h>
-#include <assert.h>
 #include "mproc.h"
 
 #define US 1000000UL	/* shortcut for microseconds per second */
@@ -25,10 +24,10 @@ static void getset_vtimer(struct mproc *mp, int nwhich, struct
 	itimerval *value, struct itimerval *ovalue);
 static void get_realtimer(struct mproc *mp, struct itimerval *value);
 static void set_realtimer(struct mproc *mp, struct itimerval *value);
-static void cause_sigalrm(int arg);
+static void cause_sigalrm(minix_timer_t *tp);
 
 /*===========================================================================*
- *				ticks_from_timeval			     *
+ *				ticks_from_timeval			     * 
  *===========================================================================*/
 static clock_t ticks_from_timeval(tv)
 struct timeval *tv;
@@ -49,7 +48,7 @@ struct timeval *tv;
    * this be declared properly without combinatorial explosion of message
    * types?
    */
-
+	
   /* In any case, the following conversion must always round up. */
 
   ticks = system_hz * (unsigned long) tv->tv_sec;
@@ -65,7 +64,7 @@ struct timeval *tv;
 }
 
 /*===========================================================================*
- *				timeval_from_ticks			     *
+ *				timeval_from_ticks			     * 
  *===========================================================================*/
 static void timeval_from_ticks(tv, ticks)
 struct timeval *tv;
@@ -76,21 +75,20 @@ clock_t ticks;
 }
 
 /*===========================================================================*
- *				is_sane_timeval				     *
+ *				is_sane_timeval				     * 
  *===========================================================================*/
-static int
-is_sane_timeval(struct timeval *tv)
+static int is_sane_timeval(tv)
+struct timeval *tv;
 {
   /* This imposes a reasonable time value range for setitimer. */
   return (tv->tv_sec >= 0 && tv->tv_sec <= MAX_SECS &&
  	  tv->tv_usec >= 0 && tv->tv_usec < US);
 }
-
+ 
 /*===========================================================================*
  *				do_itimer				     *
  *===========================================================================*/
-int
-do_itimer(void)
+int do_itimer()
 {
   struct itimerval ovalue, value;	/* old and new interval timers */
   int setval, getval;			/* set and/or retrieve the values? */
@@ -154,10 +152,13 @@ do_itimer(void)
 }
 
 /*===========================================================================*
- *				getset_vtimer				     *
+ *				getset_vtimer				     * 
  *===========================================================================*/
-static void
-getset_vtimer(struct mproc *rmp, int which, struct itimerval *value, struct itimerval *ovalue)
+static void getset_vtimer(rmp, which, value, ovalue)
+struct mproc *rmp;
+int which;
+struct itimerval *value;
+struct itimerval *ovalue;
 {
   clock_t newticks, *nptr;		/* the new timer value, in ticks */
   clock_t oldticks, *optr;		/* the old ticks value, in ticks */
@@ -187,7 +188,7 @@ getset_vtimer(struct mproc *rmp, int which, struct itimerval *value, struct itim
   	/* If no timer is set, the interval must be zero. */
   	if (newticks <= 0)
   		rmp->mp_interval[which] = 0;
-	else
+	else 
 		rmp->mp_interval[which] =
 			ticks_from_timeval(&value->it_interval);
   }
@@ -216,10 +217,11 @@ getset_vtimer(struct mproc *rmp, int which, struct itimerval *value, struct itim
 }
 
 /*===========================================================================*
- *				check_vtimer				     *
+ *				check_vtimer				     * 
  *===========================================================================*/
-void
-check_vtimer(int proc_nr, int sig)
+void check_vtimer(proc_nr, sig)
+int proc_nr;
+int sig;
 {
   register struct mproc *rmp;
   int which, num;
@@ -241,19 +243,22 @@ check_vtimer(int proc_nr, int sig)
 }
 
 /*===========================================================================*
- *				get_realtimer				     *
+ *				get_realtimer				     * 
  *===========================================================================*/
-static void
-get_realtimer(struct mproc *rmp, struct itimerval *value)
+static void get_realtimer(rmp, value)
+struct mproc *rmp;
+struct itimerval *value;
 {
   clock_t exptime;	/* time at which alarm will expire */
   clock_t uptime;	/* current system time */
   clock_t remaining;	/* time left on alarm */
+  int s;
 
   /* First determine remaining time, in ticks, of previous alarm, if set. */
   if (rmp->mp_flags & ALARM_ON) {
-	uptime = getticks();
-	exptime = tmr_exp_time(&rmp->mp_timer);
+  	if ( (s = getticks(&uptime)) != OK)
+  		panic("get_realtimer couldn't get uptime: %d", s);
+  	exptime = *tmr_exp_time(&rmp->mp_timer);
 
   	remaining = exptime - uptime;
 
@@ -273,10 +278,11 @@ get_realtimer(struct mproc *rmp, struct itimerval *value)
 }
 
 /*===========================================================================*
- *				set_realtimer				     *
+ *				set_realtimer				     * 
  *===========================================================================*/
-static void
-set_realtimer(struct mproc *rmp, struct itimerval *value)
+static void set_realtimer(rmp, value)
+struct mproc *rmp;
+struct itimerval *value;
 {
   clock_t ticks;	/* New amount of ticks to the next alarm. */
   clock_t interval;	/* New amount of ticks for the alarm's interval. */
@@ -294,14 +300,13 @@ set_realtimer(struct mproc *rmp, struct itimerval *value)
 }
 
 /*===========================================================================*
- *				set_alarm				     *
+ *				set_alarm				     * 
  *===========================================================================*/
 void set_alarm(rmp, ticks)
 struct mproc *rmp;		/* process that wants the alarm */
 clock_t ticks;			/* how many ticks delay before the signal */
 {
   if (ticks > 0) {
-	assert(ticks <= TMRDIFF_MAX);
   	set_timer(&rmp->mp_timer, ticks, cause_sigalrm, rmp->mp_endpoint);
 	rmp->mp_flags |=  ALARM_ON;
   } else if (rmp->mp_flags & ALARM_ON) {
@@ -311,17 +316,18 @@ clock_t ticks;			/* how many ticks delay before the signal */
 }
 
 /*===========================================================================*
- *				cause_sigalrm				     *
+ *				cause_sigalrm				     * 
  *===========================================================================*/
-static void
-cause_sigalrm(int arg)
+static void cause_sigalrm(tp)
+minix_timer_t *tp;
 {
   int proc_nr_n;
   register struct mproc *rmp;
 
   /* get process from timer */
-  if(pm_isokendpt(arg, &proc_nr_n) != OK) {
-	printf("PM: ignoring timer for invalid endpoint %d\n", arg);
+  if(pm_isokendpt(tmr_arg(tp)->ta_int, &proc_nr_n) != OK) {
+  	printf("PM: ignoring timer for invalid endpoint %d\n",
+  		tmr_arg(tp)->ta_int);
   	return;
   }
 
@@ -332,13 +338,12 @@ cause_sigalrm(int arg)
 
   /* If an interval is set, set a new timer; otherwise clear the ALARM_ON flag.
    * The set_alarm call will be calling set_timer from within this callback
-   * from the expire_timers function. This is safe.
+   * from the expire_timers function. This is safe, but we must not use the
+   * "tp" structure below this point anymore.
    */
   if (rmp->mp_interval[ITIMER_REAL] > 0)
 	set_alarm(rmp, rmp->mp_interval[ITIMER_REAL]);
   else rmp->mp_flags &= ~ALARM_ON;
-
-  mp = &mproc[0];		/* pretend the signal comes from PM */
 
   check_sig(rmp->mp_pid, SIGALRM, FALSE /* ksig */);
 }

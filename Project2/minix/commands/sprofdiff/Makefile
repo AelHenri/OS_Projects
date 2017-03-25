@@ -3,6 +3,6 @@
 PROG=	sprofdiff
 SRCS=	sprofdiff.c tdist.c
 LDADD+= -lm
-MAN= sprofdiff.8
+MAN=
 
 .include <bsd.prog.mk>

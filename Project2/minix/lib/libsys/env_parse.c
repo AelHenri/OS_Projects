@@ -1,5 +1,6 @@
 #include "sysutil.h"
 #include <stdlib.h>
+#include <env.h>
 #include <string.h>
 #include <minix/param.h>
 

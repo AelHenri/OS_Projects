@@ -33,6 +33,9 @@
 #	malloc() and its relatives (most do).
 #
 #DEFS = -DUNIX -DMALLOCH
+#LSC For now...
+NOGCCERROR:= yes
+
 DEFS= -DUNIX -DUSG -DSTDLIB
 CPPFLAGS+= ${DEFS}
 
@@ -45,6 +48,9 @@ LINKS+=	${BINDIR}/cawf ${BINDIR}/nroff
 
 # replaced by usr.bin/colcrt
 #LINKS+=	${BINDIR}/bsfilt ${BINDIR}/colcrt
+
+MAN.cawf=
+MAN.bsfilt=
 
 FILESDIR=	/usr/lib/cawf
 FILES=	common device.cf dumb.dev man.mac me.mac ms.mac mnx.mac

@@ -18,6 +18,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <string.h>
+#include <env.h>
 
 #include <sys/param.h>
 
@@ -115,13 +116,11 @@ struct sdh {
 #define JUNK  0xdeadbeef
 #define NOJUNK 0xc0ffee
 
-struct slabdata {
-	u8_t 	data[DATABYTES];
-	struct	sdh sdh;
-};
-
 static struct slabheader {
-	struct slabdata *list_head;
+	struct slabdata {
+		u8_t 	data[DATABYTES];
+		struct	sdh sdh;
+	} *list_head;
 } slabs[SLABSIZES];
 
 static int objstats(void *, int, struct slabheader **, struct slabdata

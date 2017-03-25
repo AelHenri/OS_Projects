@@ -9,7 +9,8 @@
 /* Simple stub for now. */
 int setrlimit(int resource, const struct rlimit *rlp)
 {
-
+	rlim_t limit;
+	
 	switch (resource)
 	{
 		case RLIMIT_CPU:
@@ -34,3 +35,4 @@ int setrlimit(int resource, const struct rlimit *rlp)
 
 	return 0;
 }
+

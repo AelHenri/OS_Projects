@@ -1,5 +1,5 @@
 #!/bin/sh
-BZIP=/usr/bin/bzip2
+BZIP=/usr/local/bin/bzip2
 RM="rm -f"
 MV="mv -f"
 

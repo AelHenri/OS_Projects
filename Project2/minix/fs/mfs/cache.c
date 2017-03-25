@@ -1,7 +1,17 @@
 /* The file system maintains a buffer cache to reduce the number of disk
  * accesses needed.  Whenever a read or write to the disk is done, a check is
- * first made to see if the block is in the cache.  This file contains some
- * related routines, but the cache is now in libminixfs.
+ * first made to see if the block is in the cache.  This file manages the
+ * cache.
+ *
+ * The entry points into this file are:
+ *   get_block:	  request to fetch a block for reading or writing from cache
+ *   put_block:	  return a block previously requested with get_block
+ *   alloc_zone:  allocate a new zone (to increase the length of a file)
+ *   free_zone:	  release a zone (when a file is removed)
+ *   invalidate:  remove all the cache blocks on some device
+ *
+ * Private functions:
+ *   read_block:    read or write a block from the disk itself
  */
 
 #include "fs.h"
@@ -15,26 +25,6 @@
 #include "buf.h"
 #include "super.h"
 #include "inode.h"
-
-/*===========================================================================*
- *				get_block				     *
- *===========================================================================*/
-struct buf *get_block(dev_t dev, block_t block, int how)
-{
-/* Wrapper routine for lmfs_get_block(). This MFS implementation does not deal
- * well with block read errors pretty much anywhere. To prevent corruption due
- * to unchecked error conditions, we panic upon an I/O failure here.
- */
-  struct buf *bp;
-  int r;
-
-  if ((r = lmfs_get_block(&bp, dev, block, how)) != OK && r != ENOENT)
-	panic("MFS: error getting block (%llu,%u): %d", dev, block, r);
-
-  assert(r == OK || how == PEEK);
-
-  return (r == OK) ? bp : NULL;
-}
 
 /*===========================================================================*
  *				alloc_zone				     *
@@ -57,7 +47,7 @@ zone_t alloc_zone(
    *     z = b + sp->s_firstdatazone - 1
    * Alloc_bit() never returns 0, since this is used for NO_BIT (failure).
    */
-  sp = &superblock;
+  sp = get_super(dev);
 
   /* If z is 0, skip initial part of the map known to be fully in use. */
   if (z == sp->s_firstdatazone) {
@@ -93,17 +83,11 @@ void free_zone(
   bit_t bit;
 
   /* Locate the appropriate super_block and return bit. */
-  sp = &superblock;
+  sp = get_super(dev);
   if (numb < sp->s_firstdatazone || numb >= sp->s_zones) return;
   bit = (bit_t) (numb - (zone_t) (sp->s_firstdatazone - 1));
   free_bit(sp, ZMAP, bit);
   if (bit < sp->s_zsearch) sp->s_zsearch = bit;
-
-  /* Also tell libminixfs, so that 1) if it has a block for this bit, it can
-   * mark it as clean, thus reducing useless writes, and 2) it can tell VM that
-   * any previous inode association is to be broken for this block, so that the
-   * block will not be mapped in erroneously later on.
-   */
-  assert(sp->s_log_zone_size == 0); /* otherwise we need a loop here.. */
-  lmfs_free_block(dev, (block_t)numb);
 }
+
+

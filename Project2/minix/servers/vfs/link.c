@@ -22,6 +22,7 @@
 #include "file.h"
 #include "path.h"
 #include "vnode.h"
+#include "scratchpad.h"
 
 /*===========================================================================*
  *				do_link					     *
@@ -329,16 +330,16 @@ int do_ftruncate(void)
 /* As with do_truncate(), truncate_vnode() does the actual work. */
   struct filp *rfilp;
   struct vnode *vp;
-  int r, fd;
+  int r;
   off_t length;
 
-  fd = job_m_in.m_lc_vfs_truncate.fd;
+  scratch(fp).file.fd_nr = job_m_in.m_lc_vfs_truncate.fd;
 
   length = job_m_in.m_lc_vfs_truncate.offset;
   if (length < 0) return(EINVAL);
 
   /* File is already opened; get a vnode pointer from filp */
-  if ((rfilp = get_filp(fd, VNODE_WRITE)) == NULL)
+  if ((rfilp = get_filp(scratch(fp).file.fd_nr, VNODE_WRITE)) == NULL)
 	return(err_code);
 
   vp = rfilp->filp_vno;
@@ -362,8 +363,9 @@ int do_ftruncate(void)
 /*===========================================================================*
  *				truncate_vnode				     *
  *===========================================================================*/
-int
-truncate_vnode(struct vnode *vp, off_t newsize)
+int truncate_vnode(vp, newsize)
+struct vnode *vp;
+off_t newsize;
 {
 /* Truncate a regular file or a pipe */
   int r;
@@ -426,12 +428,10 @@ int do_slink(void)
 /*===========================================================================*
  *                              rdlink_direct                                *
  *===========================================================================*/
-int
-rdlink_direct(
-	char *orig_path,
-	char link_path[PATH_MAX], /* should have length PATH_MAX */
-	struct fproc *rfp
-)
+int rdlink_direct(orig_path, link_path, rfp)
+char *orig_path;
+char link_path[PATH_MAX]; /* should have length PATH_MAX */
+struct fproc *rfp;
 {
 /* Perform a readlink()-like call from within the VFS */
   int r;

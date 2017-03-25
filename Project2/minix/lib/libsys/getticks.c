@@ -1,13 +1,17 @@
 #include "sysutil.h"
 
-/*
- * Return the number of clock ticks since system boot.  Note that the value may
- * wrap on overflow.
- */
-clock_t
-getticks(void)
+/*===========================================================================*
+ *                               getuptime			    	     *
+ *===========================================================================*/
+int getticks(ticks)
+clock_t *ticks;					/* monotonic time in ticks */
 {
+    message m;
+    int s;
 
-	/* We assume atomic 32-bit field retrieval.  TODO: 64-bit support. */
-	return get_minix_kerninfo()->kclockinfo->uptime;
+    m.m_type = SYS_TIMES;			/* request time information */
+    m.m_lsys_krn_sys_times.endpt = NONE;	/* ignore process times */
+    s = _kernel_call(SYS_TIMES, &m);
+    *ticks = m.m_krn_lsys_sys_times.boot_ticks;
+    return(s);
 }

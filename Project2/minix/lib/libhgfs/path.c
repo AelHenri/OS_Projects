@@ -7,14 +7,13 @@
 /*===========================================================================*
  *				path_put				     *
  *===========================================================================*/
-void path_put(const char *path)
+void path_put(char *path)
 {
 /* Append the given path name in HGFS format to the RPC buffer. Truncate it
  * if it is longer than PATH_MAX bytes.
  */
-  const char *p;
-  char buf[PATH_MAX];
-  unsigned int len;
+  char *p, buf[PATH_MAX];
+  int len;
 
   /* No leading slashes are allowed. */
   for (p = path; *p == '/'; p++);

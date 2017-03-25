@@ -54,5 +54,7 @@ EXTERN unsigned system_hz;
 
 EXTERN struct machine machine;		/* machine info */
 
+EXTERN struct kinfo kinfo;     /* kernel information */
+
 #endif /* RS_GLO_H */
 

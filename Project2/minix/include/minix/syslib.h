@@ -15,6 +15,7 @@
 #include <machine/mcontext.h>
 
 /* Forward declaration */
+struct reg86u;
 struct rs_pci;
 struct rusage;
 
@@ -36,8 +37,8 @@ int sys_clear(endpoint_t proc_ep);
 int sys_exit(void);
 int sys_trace(int req, endpoint_t proc_ep, long addr, long *data_p);
 
-int sys_schedule(endpoint_t proc_ep, int priority, int quantum, int cpu,
-	int niced);
+int sys_schedule(endpoint_t proc_ep, int priority, int quantum, int
+	cpu);
 int sys_schedctl(unsigned flags, endpoint_t proc_ep, int priority, int
 	quantum, int cpu);
 
@@ -47,13 +48,14 @@ int sys_schedctl(unsigned flags, endpoint_t proc_ep, int priority, int
 #define sys_resume(proc_ep) sys_runctl(proc_ep, RC_RESUME, 0)
 int sys_runctl(endpoint_t proc_ep, int action, int flags);
 
-int sys_update(endpoint_t src_ep, endpoint_t dst_ep, int flags);
-int sys_statectl(int request, void* address, int length);
+int sys_update(endpoint_t src_ep, endpoint_t dst_ep);
+int sys_statectl(int request);
 int sys_privctl(endpoint_t proc_ep, int req, void *p);
 int sys_privquery_mem(endpoint_t proc_ep, phys_bytes physstart,
 	phys_bytes physlen);
 int sys_setgrant(cp_grant_t *grants, int ngrants);
 
+int sys_int86(struct reg86u *reg86p);
 int sys_vm_setbuf(phys_bytes base, phys_bytes size, phys_bytes high);
 int sys_vm_map(endpoint_t proc_ep, int do_map, phys_bytes base,
 	phys_bytes size, phys_bytes offset);
@@ -105,11 +107,7 @@ int free_contig(void *addr, size_t len);
  */
 int sys_times(endpoint_t proc_ep, clock_t *user_time, clock_t *sys_time,
 	clock_t *uptime, time_t *boottime);
-
-#define sys_setalarm(exp, abs) sys_setalarm2(exp, abs, NULL, NULL)
-int sys_setalarm2(clock_t exp_time, int abs_time, clock_t *time_left,
-	clock_t *uptime);
-
+int sys_setalarm(clock_t exp_time, int abs_time);
 int sys_vtimer(endpoint_t proc_nr, int which, clock_t *newval, clock_t
 	*oldval);
 
@@ -188,11 +186,11 @@ int sys_diagctl(int ctl, char *arg1, int arg2);
 #define sys_getpriv(dst, nr)	sys_getinfo(GET_PRIV, dst, 0,0, nr)
 #define sys_getidletsc(dst)	sys_getinfo(GET_IDLETSC, dst, 0,0,0)
 #define sys_getregs(dst,nr)	sys_getinfo(GET_REGS, dst, 0,0, nr)
-#define sys_getcputicks(dst,nr)	sys_getinfo(GET_CPUTICKS, dst, 0,0, nr)
+#define sys_getrusage(dst, nr)  sys_getinfo(GET_RUSAGE, dst, 0,0, nr)
 int sys_getinfo(int request, void *val_ptr, int val_len, void *val_ptr2,
 	int val_len2);
 int sys_whoami(endpoint_t *ep, char *name, int namelen, int
-	*priv_flags, int* init_flags);
+	*priv_flags);
 
 /* Signal control. */
 int sys_kill(endpoint_t proc_ep, int sig);
@@ -251,7 +249,10 @@ int pci_get_bar(int devind, int port, u32_t *base, u32_t *size, int
 
 /* Profiling. */
 int sys_sprof(int action, int size, int freq, int type, endpoint_t
-	endpt, vir_bytes ctl_ptr, vir_bytes mem_ptr);
+	endpt, void *ctl_ptr, void *mem_ptr);
+int sys_cprof(int action, int size, endpoint_t endpt, void *ctl_ptr,
+	void *mem_ptr);
+int sys_profbuf(void *ctl_ptr, void *mem_ptr);
 
 /* machine context */
 int sys_getmcontext(endpoint_t proc, vir_bytes mcp);
@@ -273,14 +274,6 @@ int copyfd(endpoint_t endpt, int fd, int what);
 #define COPYFD_FROM	0	/* copy file descriptor from remote process */
 #define COPYFD_TO	1	/* copy file descriptor to remote process */
 #define COPYFD_CLOSE	2	/* close file descriptor in remote process */
-
-/*
- * These are also the event numbers used in PROC_EVENT messages, but in order
- * to allow for subscriptions to multiple events, they form a bit mask.
- */
-#define PROC_EVENT_EXIT		0x01	/* process has exited */
-#define PROC_EVENT_SIGNAL	0x02	/* process has caught signal */
-int proceventmask(unsigned int mask);
 
 #endif /* _SYSLIB_H */
 

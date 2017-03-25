@@ -2,6 +2,6 @@
 
 PROG=	sprofalyze
 SRCS=	sprofalyze.c
-MAN=	sprofalyze.8
+MAN=
 
 .include <bsd.prog.mk>

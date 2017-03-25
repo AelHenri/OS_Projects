@@ -232,7 +232,7 @@ static void port_set_cmd(struct port_state *ps, int cmd, cmd_fis_t *fis,
 	u8_t packet[ATAPI_PACKET_SIZE], prd_t *prdt, int nr_prds, int write);
 static void port_issue(struct port_state *ps, int cmd, clock_t timeout);
 static int port_exec(struct port_state *ps, int cmd, clock_t timeout);
-static void port_timeout(int arg);
+static void port_timeout(minix_timer_t *tp);
 static void port_disconnect(struct port_state *ps);
 
 static char *ahci_portname(struct port_state *ps);
@@ -1712,7 +1712,7 @@ static void port_intr(struct port_state *ps)
 /*===========================================================================*
  *				port_timeout				     *
  *===========================================================================*/
-static void port_timeout(int arg)
+static void port_timeout(minix_timer_t *tp)
 {
 	/* A timeout has occurred on this port. Figure out what the timeout is
 	 * for, and take appropriate action.
@@ -1720,8 +1720,8 @@ static void port_timeout(int arg)
 	struct port_state *ps;
 	int port, cmd;
 
-	port = GET_PORT(arg);
-	cmd = GET_TAG(arg);
+	port = GET_PORT(tmr_arg(tp)->ta_int);
+	cmd = GET_TAG(tmr_arg(tp)->ta_int);
 
 	assert(port >= 0 && port < hba_state.nr_ports);
 
@@ -2374,12 +2374,10 @@ static void sef_local_startup(void)
 
 	/* Register init callbacks. */
 	sef_setcb_init_fresh(sef_cb_init_fresh);
+	sef_setcb_init_lu(sef_cb_init_fresh);
 
 	/* Register signal callbacks. */
 	sef_setcb_signal_handler(sef_cb_signal_handler);
-
-	/* Enable support for live update. */
-	blockdriver_mt_support_lu();
 
 	/* Let SEF perform startup. */
 	sef_startup();

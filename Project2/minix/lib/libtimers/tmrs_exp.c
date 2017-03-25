@@ -1,29 +1,31 @@
-#include <minix/timers.h>
+#include "timers.h"
 
-/*
- * Use the current time to check the timers queue list for expired timers.
+/*===========================================================================*
+ *				tmrs_exptimers				     *
+ *===========================================================================*/
+void tmrs_exptimers(tmrs, now, new_head)
+minix_timer_t **tmrs;				/* pointer to timers queue */
+clock_t now;				/* current time */
+clock_t *new_head;
+{
+/* Use the current time to check the timers queue list for expired timers. 
  * Run the watchdog functions for all expired timers and deactivate them.
  * The caller is responsible for scheduling a new alarm if needed.
  */
-int
-tmrs_exptimers(minix_timer_t ** tmrs, clock_t now, clock_t * new_head)
-{
-	minix_timer_t *tp;
-	tmr_func_t func;
+  minix_timer_t *tp;
 
-	while ((tp = *tmrs) != NULL && tmr_has_expired(tp, now)) {
-		*tmrs = tp->tmr_next;
+  while ((tp = *tmrs) != NULL && tp->tmr_exp_time <= now) {
+	*tmrs = tp->tmr_next;
+	tp->tmr_exp_time = TMR_NEVER;
+	(*tp->tmr_func)(tp);
+  }
 
-		func = tp->tmr_func;
-		tp->tmr_func = NULL;
-
-		(*func)(tp->tmr_arg);
-	}
-
-	if (*tmrs != NULL) {
-		if (new_head != NULL)
-			*new_head = (*tmrs)->tmr_exp_time;
-		return TRUE;
-	} else
-		return FALSE;
+  if(new_head) {
+  	if(*tmrs)
+  		*new_head = (*tmrs)->tmr_exp_time;
+  	else
+  		*new_head = 0;
+  }
 }
+
+

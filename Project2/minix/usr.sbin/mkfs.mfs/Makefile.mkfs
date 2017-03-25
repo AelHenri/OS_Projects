@@ -10,5 +10,6 @@ MAN?=
 CPPFLAGS+=	-I${.CURDIR}
 
 NOGCCERROR?=    yes
+NOCLANGERROR?=  yes
 
 .include <bsd.prog.mk>

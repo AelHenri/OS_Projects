@@ -78,7 +78,8 @@ int do_vtimer(struct proc * caller, message * m_ptr)
 /*===========================================================================*
  *				vtimer_check				     *
  *===========================================================================*/
-void vtimer_check(struct proc * rp)
+void vtimer_check(rp)
+struct proc *rp;			/* pointer to the process */
 {
   /* This is called from the clock task, so we can be interrupted by the clock
    * interrupt, but not by the system task. Therefore we only have to protect

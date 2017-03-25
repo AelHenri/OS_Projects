@@ -40,7 +40,7 @@ char * netsock_user_name = NULL;
 							##__VA_ARGS__)
 
 
-struct socket socket_array[MAX_SOCKETS];
+struct socket socket[MAX_SOCKETS];
 
 static int netsock_open(devminor_t minor, int access, endpoint_t user_endpt);
 static int netsock_close(devminor_t minor);
@@ -80,7 +80,7 @@ struct mq {
 
 static struct mq * mq_head, *mq_tail;
 
-static int mq_enqueue(struct sock_req * req)
+int mq_enqueue(struct sock_req * req)
 {
 	struct mq * mq;
 
@@ -249,10 +249,10 @@ struct socket * get_unused_sock(void)
 	int i;
 
 	for (i = SOCK_TYPES + MAX_DEVS; i < MAX_SOCKETS; i++) {
-		if (socket_array[i].ops == NULL) {
+		if (socket[i].ops == NULL) {
 			/* clear it all */
-			memset(&socket_array[i], 0, sizeof(struct socket));
-			return &socket_array[i];
+			memset(&socket[i], 0, sizeof(struct socket));
+			return &socket[i];
 		}
 	}
 
@@ -317,7 +317,7 @@ static int netsock_close(devminor_t minor)
 
 static int netsock_request(struct socket *sock, struct sock_req *req)
 {
-	const char *o __unused;
+	char *o;
 
 	/*
 	 * If an operation is pending (blocking operation) or writing is

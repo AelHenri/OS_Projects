@@ -1,14 +1,11 @@
 #include <sys/cdefs.h>
 #include "namespace.h"
-#include <lib.h>
 
-#include <string.h>
 #include <errno.h>
 #include <stdio.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <net/netlib.h>
-#include <sys/ioctl.h>
 #include <sys/ioc_net.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -19,44 +16,32 @@
 static int _uds_socketpair(int type, int protocol, int sv[2]);
 
 /*
- * Create a pair of connected sockets.
+ * Create a pair of connected sockets
  */
-static int
-__socketpair(int domain, int type, int protocol, int sv[2])
-{
-	message m;
-
-	memset(&m, 0, sizeof(m));
-	m.m_lc_vfs_socket.domain = domain;
-	m.m_lc_vfs_socket.type = type;
-	m.m_lc_vfs_socket.protocol = protocol;
-
-	if (_syscall(VFS_PROC_NR, VFS_SOCKETPAIR, &m) < 0)
-		return -1;
-
-	sv[0] = m.m_vfs_lc_fdpair.fd0;
-	sv[1] = m.m_vfs_lc_fdpair.fd1;
-	return 0;
-}
-
-int
-socketpair(int domain, int type, int protocol, int sv[2])
-{
-	int r;
-
-	r = __socketpair(domain, type, protocol, sv);
-	if (r != -1 || (errno != EAFNOSUPPORT && errno != ENOSYS))
-		return r;
+int socketpair(int domain, int type, int protocol, int sv[2]) {
 
 #if DEBUG
 	fprintf(stderr, "socketpair: domain %d, type %d, protocol %d\n",
 		domain, type, protocol);
 #endif
 
-	if (domain == AF_UNIX)
+	if (domain != AF_UNIX)
+	{
+		errno = EAFNOSUPPORT;
+		return -1;
+	}
+
+	if (domain == AF_UNIX &&
+			(type == SOCK_STREAM || type == SOCK_SEQPACKET))
 		return _uds_socketpair(type, protocol, sv);
 
-	errno = EAFNOSUPPORT;
+#if DEBUG
+	fprintf(stderr,
+		"socketpair: nothing for domain %d, type %d, protocol %d\n",
+		domain, type, protocol);
+#endif
+
+	errno= EPROTOTYPE;
 	return -1;
 }
 
@@ -65,11 +50,6 @@ static int _uds_socketpair(int type, int protocol, int sv[2])
 	dev_t dev;
 	int r, i;
 	struct stat sbuf;
-
-	if (type != SOCK_STREAM && type != SOCK_SEQPACKET) {
-		errno = EPROTOTYPE;
-		return -1;
-	}
 
 	if (protocol != 0)
 	{
@@ -136,7 +116,7 @@ static int _uds_socketpair(int type, int protocol, int sv[2])
 		return -1;
 	}
 
-	dev = sbuf.st_rdev;
+	dev = sbuf.st_dev;
 
 	/* connect the sockets sv[0] and sv[1] */
 	r= ioctl(sv[0], NWIOSUDSPAIR, &dev);

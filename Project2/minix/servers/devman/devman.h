@@ -36,8 +36,6 @@
 #include <minix/devman.h>
 #include <sys/queue.h>
 
-#define BUF_SIZE 4097
-
 #define DEVMAN_DEFAULT_MODE   (S_IRUSR | S_IRGRP | S_IROTH)
 #define DEVMAN_STRING_LEN 128
 
@@ -50,8 +48,8 @@ enum devman_inode_type {
 	DEVMAN_DEVICE
 };
 
-typedef ssize_t (*devman_read_fn)
-    (char *ptr, size_t len, off_t offset, void *data);
+typedef int (*devman_read_fn)
+    (char **ptr, size_t *len, off_t offset, void *data);
 
 struct devman_device_file {
 	int minor;

@@ -1,5 +1,5 @@
 PROG=	tcpd
 CPPFLAGS+= -DPARANOID=0
-MAN=	tcpd.8
+MAN=
 
 .include <bsd.prog.mk>

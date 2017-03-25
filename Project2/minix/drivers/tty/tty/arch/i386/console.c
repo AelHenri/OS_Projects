@@ -20,6 +20,7 @@
 #include <termios.h>
 #include <assert.h>
 #include <sys/ioctl.h>
+#include <sys/vm.h>
 #include <sys/video.h>
 #include <sys/mman.h>
 #include <sys/termios.h>
@@ -128,7 +129,7 @@ static void flush(console_t *cons);
 static void parse_escape(console_t *cons, int c);
 static void scroll_screen(console_t *cons, int dir);
 static void set_6845(int reg, unsigned val);
-static void stop_beep(int arg);
+static void stop_beep(minix_timer_t *tmrp);
 static void cons_org0(void);
 static void disable_console(void);
 static void reenable_console(void);
@@ -844,7 +845,32 @@ static int video_ioctl(devminor_t minor, unsigned long request,
 	endpoint_t endpt, cp_grant_id_t grant, int flags,
 	endpoint_t user_endpt, cdev_id_t id)
 {
-  return ENOTTY;
+  struct mapreqvm mapreqvm;
+  int r, do_map;
+
+  switch (request) {
+  case TIOCMAPMEM:
+  case TIOCUNMAPMEM:
+	do_map = (request == TIOCMAPMEM);	/* else unmap */
+
+	if ((r = sys_safecopyfrom(endpt, grant, 0, (vir_bytes) &mapreqvm,
+		sizeof(mapreqvm))) != OK)
+		return r;
+
+	if (do_map) {
+		mapreqvm.vaddr_ret = vm_map_phys(user_endpt,
+			(void *) mapreqvm.phys_offset, mapreqvm.size);
+		r = sys_safecopyto(endpt, grant, 0, (vir_bytes) &mapreqvm,
+			sizeof(mapreqvm));
+	} else {
+		r = vm_unmap_phys(user_endpt, mapreqvm.vaddr, mapreqvm.size);
+	}
+
+	return r;
+
+  default:
+	return ENOTTY;
+  }
 }
 
 /*===========================================================================*
@@ -895,7 +921,7 @@ clock_t dur;
 /*===========================================================================*
  *				stop_beep				     *
  *===========================================================================*/
-static void stop_beep(int arg __unused)
+static void stop_beep(minix_timer_t *UNUSED(tmrp))
 {
 /* Turn off the beeper by turning off bits 0 and 1 in PORT_B. */
   u32_t port_b_val;

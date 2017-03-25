@@ -21,6 +21,10 @@
 #include "misc.h"
 #include "tab.h"
 
+#if __minix && !__minix_vmd
+#define initgroups(name, gid)	(0)
+#endif
+
 static volatile int busy;	/* Set when something is afoot, don't sleep! */
 static volatile int need_reload;/* Set if table reload required. */
 static volatile int need_quit;	/* Set if cron must exit. */
@@ -51,7 +55,7 @@ static void run_job(cronjob_t *job)
 				need_reload= 1;
 			} else {
 				/* Bad error, halt processing AT jobs. */
-				cronlog(LOG_CRIT, "Can't rename %s: %s\n",
+				log(LOG_CRIT, "Can't rename %s: %s\n",
 					tab->file, strerror(errno));
 				tab_reschedule(job);
 			}
@@ -61,14 +65,13 @@ static void run_job(cronjob_t *job)
 		need_reload= 1;
 
 		if (stat(tab->data, &st) < 0) {
-			cronlog(LOG_ERR, "Can't stat %s: %s\n",
+			log(LOG_ERR, "Can't stat %s: %s\n",
 						tab->data, strerror(errno));
 			tab_reschedule(job);
 			return;
 		}
 		if ((pw= getpwuid(st.st_uid)) == nil) {
-			cronlog(LOG_ERR,
-				"Unknown owner for uid %lu of AT job %s\n",
+			log(LOG_ERR, "Unknown owner for uid %lu of AT job %s\n",
 				(unsigned long) st.st_uid, job->cmd);
 			tab_reschedule(job);
 			return;
@@ -76,7 +79,7 @@ static void run_job(cronjob_t *job)
 	} else {
 		pw= nil;
 		if (job->user != nil && (pw= getpwnam(job->user)) == nil) {
-			cronlog(LOG_ERR, "%s: Unknown user\n", job->user);
+			log(LOG_ERR, "%s: Unknown user\n", job->user);
 			tab_reschedule(job);
 			return;
 		}
@@ -85,7 +88,7 @@ static void run_job(cronjob_t *job)
 	if (need_mailer) {
 		errfd[0]= -1;
 		if (pipe(errfd) < 0 || pipe(mailfd) < 0) {
-			cronlog(LOG_ERR, "pipe() call failed: %s\n",
+			log(LOG_ERR, "pipe() call failed: %s\n",
 							strerror(errno));
 			if (errfd[0] != -1) {
 				close(errfd[0]);
@@ -98,7 +101,7 @@ static void run_job(cronjob_t *job)
 				fcntl(errfd[1], F_GETFD) | FD_CLOEXEC);
 
 		if ((pid= fork()) == -1) {
-			cronlog(LOG_ERR, "fork() call failed: %s\n",
+			log(LOG_ERR, "fork() call failed: %s\n",
 							strerror(errno));
 			close(errfd[0]);
 			close(errfd[1]);
@@ -140,7 +143,7 @@ static void run_job(cronjob_t *job)
 		close(mailfd[0]);
 		close(errfd[1]);
 		if (read(errfd[0], &errno, sizeof(errno)) > 0) {
-			cronlog(LOG_ERR, "can't execute /usr/bin/mail: %s\n",
+			log(LOG_ERR, "can't execute /usr/bin/mail: %s\n",
 							strerror(errno));
 			close(errfd[0]);
 			close(mailfd[1]);
@@ -151,7 +154,7 @@ static void run_job(cronjob_t *job)
 	}
 
 	if (pipe(errfd) < 0) {
-		cronlog(LOG_ERR, "pipe() call failed: %s\n", strerror(errno));
+		log(LOG_ERR, "pipe() call failed: %s\n", strerror(errno));
 		if (need_mailer) close(mailfd[1]);
 		tab_reschedule(job);
 		return;
@@ -159,7 +162,7 @@ static void run_job(cronjob_t *job)
 	(void) fcntl(errfd[1], F_SETFD, fcntl(errfd[1], F_GETFD) | FD_CLOEXEC);
 
 	if ((pid= fork()) == -1) {
-		cronlog(LOG_ERR, "fork() call failed: %s\n", strerror(errno));
+		log(LOG_ERR, "fork() call failed: %s\n", strerror(errno));
 		close(errfd[0]);
 		close(errfd[1]);
 		if (need_mailer) close(mailfd[1]);
@@ -204,8 +207,7 @@ static void run_job(cronjob_t *job)
 	if (need_mailer) close(mailfd[1]);
 	close(errfd[1]);
 	if (read(errfd[0], &errno, sizeof(errno)) > 0) {
-		cronlog(LOG_ERR, "can't execute /bin/sh: %s\n",
-			strerror(errno));
+		log(LOG_ERR, "can't execute /bin/sh: %s\n", strerror(errno));
 		close(errfd[0]);
 		tab_reschedule(job);
 		return;
@@ -254,13 +256,13 @@ static void load_crontabs(void)
 			tab_parse(tab, nil);
 		}
 		if (ferror(pkgs)) {
-			cronlog(LOG_CRIT, "/usr/lib/packages: %s\n",
+			log(LOG_CRIT, "/usr/lib/packages: %s\n",
 							strerror(errno));
 		}
 		fclose(pkgs);
 	} else {
 		if (errno != ENOENT) {
-			cronlog(LOG_ERR, "/usr/lib/packages: %s\n",
+			log(LOG_ERR, "/usr/lib/packages: %s\n",
 							strerror(errno));
 		}
 	}

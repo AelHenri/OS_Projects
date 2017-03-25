@@ -1,6 +1,5 @@
 #include <sys/cdefs.h>
 #include "namespace.h"
-#include <lib.h>
 
 #include <assert.h>
 #include <errno.h>
@@ -20,7 +19,7 @@
 #include <net/gen/udp_io.h>
 
 #include <net/gen/ip_hdr.h>
-#include <net/gen/ip_io.h>
+#include <net/gen/icmp_hdr.h>
 
 #define DEBUG 0
 
@@ -37,38 +36,6 @@ static ssize_t _uds_recvfrom_dgram(int sock, void *__restrict buffer,
 	size_t length, int flags, struct sockaddr *__restrict address,
 	socklen_t *__restrict address_len);
 
-/*
- * Receive a message from a socket.
- */
-static ssize_t
-__recvfrom(int fd, void * __restrict buffer, size_t length, int flags,
-	struct sockaddr * __restrict address,
-	socklen_t * __restrict address_len)
-{
-	message m;
-	ssize_t r;
-
-	if (address != NULL && address_len == NULL) {
-		errno = EFAULT;
-		return -1;
-	}
-
-	memset(&m, 0, sizeof(m));
-	m.m_lc_vfs_sendrecv.fd = fd;
-	m.m_lc_vfs_sendrecv.buf = (vir_bytes)buffer;
-	m.m_lc_vfs_sendrecv.len = length;
-	m.m_lc_vfs_sendrecv.flags = flags;
-	m.m_lc_vfs_sendrecv.addr = (vir_bytes)address;
-	m.m_lc_vfs_sendrecv.addr_len = (address != NULL) ? *address_len : 0;
-
-	if ((r = _syscall(VFS_PROC_NR, VFS_RECVFROM, &m)) < 0)
-		return -1;
-
-	if (address != NULL)
-		*address_len = m.m_vfs_lc_socklen.len;
-	return r;
-}
-
 ssize_t recvfrom(int sock, void *__restrict buffer, size_t length,
 	int flags, struct sockaddr *__restrict address,
 	socklen_t *__restrict address_len)
@@ -76,13 +43,8 @@ ssize_t recvfrom(int sock, void *__restrict buffer, size_t length,
 	int r;
 	nwio_tcpconf_t tcpconf;
 	nwio_udpopt_t udpopt;
-	nwio_ipopt_t ipopt;
 	struct sockaddr_un uds_addr;
 	int uds_sotype = -1;
-
-	r = __recvfrom(sock, buffer, length, flags, address, address_len);
-	if (r != -1 || (errno != ENOTSOCK && errno != ENOSYS))
-		return r;
 
 #if DEBUG
 	fprintf(stderr, "recvfrom: for fd %d\n", sock);
@@ -124,22 +86,17 @@ ssize_t recvfrom(int sock, void *__restrict buffer, size_t length,
 		}
 	}
 
-	r= ioctl(sock, NWIOGIPOPT, &ipopt);
-	if (r != -1 || errno != ENOTTY)
 	{
 		ip_hdr_t *ip_hdr;
-		int rd;
+       		int ihl, rd;
+		icmp_hdr_t *icmp_hdr;
 		struct sockaddr_in sin;
-
-		if (r == -1) {
-			return r;
-		}
 
 		rd = read(sock, buffer, length);
 
 		if(rd < 0) return rd;
 
-		assert((size_t)rd >= sizeof(*ip_hdr));
+		assert(rd >= sizeof(*ip_hdr));
 
 		ip_hdr= buffer;
 
@@ -151,17 +108,19 @@ ssize_t recvfrom(int sock, void *__restrict buffer, size_t length,
 			sin.sin_addr.s_addr= ip_hdr->ih_src;
 			sin.sin_len= sizeof(sin);
 			len= *address_len;
-			if ((size_t)len > sizeof(sin))
-				len= (int)sizeof(sin);
+			if (len > sizeof(sin))
+				len= sizeof(sin);
 			memcpy(address, &sin, len);
 			*address_len= sizeof(sin);
 		}
 
 		return rd;
-	}
+       }
 
-	errno = ENOTSOCK;
-	return -1;
+#if DEBUG
+	fprintf(stderr, "recvfrom: not implemented for fd %d\n", sock);
+#endif
+	abort();
 }
 
 static ssize_t _tcp_recvfrom(int sock, void *__restrict buffer, size_t length,
@@ -278,7 +237,7 @@ static ssize_t _udp_recvfrom(int sock, void *__restrict buffer, size_t length,
 		return -1;
 	}
 
-	assert((size_t)r >= sizeof(*io_hdrp));
+	assert(r >= sizeof(*io_hdrp));
 	length= r-sizeof(*io_hdrp);
 
 	io_hdrp= buf;

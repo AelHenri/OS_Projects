@@ -36,7 +36,6 @@
 #include <sys/ioctl.h>
 #include <sys/ioc_memory.h>
 #include <sys/param.h>
-#include <minix/paths.h>
 #include <stdio.h>
 #include <assert.h>
 #include <string.h>
@@ -140,6 +139,7 @@ static void do_write(void *buf, int fd, int writable)
 static void do_stat(void *buf, int fd, int writable)
 {
 	int r;
+	struct stat sb;
 	r = fstat(fd, (struct stat *) buf);
 
 	/* should succeed if buf is writable */
@@ -187,7 +187,7 @@ static void do_readlink2(void *buf, int fd, int writable)
 		((char *) buf)[rl] = '\0';
 		if(strcmp(buf, TARGETNAME)) {
 			fprintf(stderr, "readlink: expected %s, got %s\n",
-				TARGETNAME, (char *)buf);
+				TARGETNAME, buf);
 			e(3);
 		}
 		return;
@@ -201,14 +201,16 @@ static void do_readlink2(void *buf, int fd, int writable)
 
 static void do_symlink1(void *buf, int fd, int writable)
 {
+	int r;
 	/* the system call just has to fail gracefully */
-	(void)symlink(buf, NODENAME);
+	r = symlink(buf, NODENAME);
 }
 
 static void do_symlink2(void *buf, int fd, int writable)
 {
+	int r;
 	/* the system call just has to fail gracefully */
-	(void)symlink(NODENAME, buf);
+	r = symlink(NODENAME, buf);
 }
 
 static void do_open(void *buf, int fd, int writable)
@@ -221,23 +223,26 @@ static void do_open(void *buf, int fd, int writable)
 
 static void do_select1(void *buf, int fd, int writable)
 {
+	int r;
 	struct timeval timeout = { 0, 200000 };	/* 0.2 sec */
 	/* the system call just has to fail gracefully */
-	(void)select(1, buf, NULL, NULL, &timeout);
+	r = select(1, buf, NULL, NULL, &timeout);
 }
 
 static void do_select2(void *buf, int fd, int writable)
 {
+	int r;
 	struct timeval timeout = { 0, 200000 };	/* 1 sec */
 	/* the system call just has to fail gracefully */
-	(void)select(1, NULL, buf, NULL, &timeout);
+	r = select(1, NULL, buf, NULL, &timeout);
 }
 
 static void do_select3(void *buf, int fd, int writable)
 {
+	int r;
 	struct timeval timeout = { 0, 200000 };	/* 1 sec */
 	/* the system call just has to fail gracefully */
-	(void)select(1, NULL, NULL, buf, &timeout);
+	r = select(1, NULL, NULL, buf, &timeout);
 }
 
 static void fillfile(int fd, int size)
@@ -320,7 +325,7 @@ struct {
 	{ do_select3 },
 };
 
-static void test_memory_types_vs_operations(void)
+void test_memory_types_vs_operations(void)
 {
 #define NFDS 4
 #define BUFSIZE (10 * PAGE_SIZE)
@@ -363,7 +368,7 @@ static void test_memory_types_vs_operations(void)
 	}
 }
 
-static void basic_regression(void)
+void basic_regression(void)
 {
 	int fd, fd1, fd2;
 	ssize_t rb, wr;
@@ -395,9 +400,7 @@ static void basic_regression(void)
 	 */
 
 	fd1 = open("../testsh1", O_RDONLY);
-	if (fd1 < 0) fd1 = open("../testsh1.sh", O_RDONLY);
 	fd2 = open("../testsh2", O_RDONLY);
-	if (fd2 < 0) fd2 = open("../testsh2.sh", O_RDONLY);
 	if(fd1 < 0 || fd2 < 0) { e(2); }
 
 	/* just check that we can't mmap() a file writable */
@@ -415,7 +418,7 @@ static void basic_regression(void)
 	if(fcntl(fd2, F_FLUSH_FS_CACHE) < 0) { e(1); }
 
 #define LOCATION1 (void *) 0x90000000
-#define LOCATION2 ((void *)((char *)LOCATION1 + PAGE_SIZE))
+#define LOCATION2 (LOCATION1 + PAGE_SIZE)
 	block1 = mmap(LOCATION1, PAGE_SIZE, PROT_READ, MAP_PRIVATE | MAP_FILE, fd1, 0);
 	if(block1 == MAP_FAILED) { e(4); }
 	if(block1 != LOCATION1) { e(5); }
@@ -459,443 +462,16 @@ static void basic_regression(void)
 
 }
 
-/*
- * Test mmap on none-dev file systems - file systems that do not have a buffer
- * cache and therefore have to fake mmap support.  We use procfs as target.
- * The idea is that while we succeed in mapping in /proc/uptime, we also get
- * a new uptime value every time we map in the page -- VM must not cache it.
- */
-static void
-nonedev_regression(void)
-{
-	int fd, fd2;
-	char *buf;
-	unsigned long uptime1, uptime2, uptime3;
-
-	subtest++;
-
-	if ((fd = open(_PATH_PROC "uptime", O_RDONLY)) < 0) e(1);
-
-	buf = mmap(NULL, 4096, PROT_READ, MAP_PRIVATE | MAP_FILE, fd, 0);
-	if (buf == MAP_FAILED) e(2);
-
-	if (buf[4095] != 0) e(3);
-
-	if ((uptime1 = atoi(buf)) == 0) e(4);
-
-	if (munmap(buf, 4096) != 0) e(5);
-
-	sleep(2);
-
-	buf = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_FILE,
-	    fd, 0);
-	if (buf == MAP_FAILED) e(6);
-
-	if (buf[4095] != 0) e(7);
-
-	if ((uptime2 = atoi(buf)) == 0) e(8);
-
-	if (uptime1 == uptime2) e(9);
-
-	if (munmap(buf, 4096) != 0) e(10);
-
-	sleep(2);
-
-	buf = mmap(NULL, 4096, PROT_READ, MAP_SHARED | MAP_FILE, fd, 0);
-	if (buf == MAP_FAILED) e(11);
-
-	if (buf[4095] != 0) e(12);
-
-	if ((uptime3 = atoi(buf)) == 0) e(13);
-
-	if (uptime1 == uptime3) e(14);
-	if (uptime2 == uptime3) e(15);
-
-	if (munmap(buf, 4096) != 0) e(16);
-
-	/* Also test page faults not incurred by the process itself. */
-	if ((fd2 = open("testfile", O_CREAT | O_TRUNC | O_WRONLY)) < 0) e(17);
-
-	if (unlink("testfile") != 0) e(18);
-
-	buf = mmap(NULL, 4096, PROT_READ, MAP_SHARED | MAP_FILE, fd, 0);
-	if (buf == MAP_FAILED) e(19);
-
-	if (write(fd2, buf, 10) != 10) e(20);
-
-	if (munmap(buf, 4096) != 0) e(21);
-
-	close(fd2);
-	close(fd);
-}
-
-/*
- * Regression test for a nasty memory-mapped file corruption bug, which is not
- * easy to reproduce but, before being solved, did occur in practice every once
- * in a while.  The executive summary is that through stale inode associations,
- * VM could end up using an old block to satisfy a memory mapping.
- *
- * This subtest relies on a number of assumptions regarding allocation and
- * reuse of inode numbers and blocks.  These assumptions hold for MFS but
- * possibly no other file system.  However, if the subtest's assumptions are
- * not met, it will simply succeed.
- */
-static void
-corruption_regression(void)
-{
-	char *ptr, *buf;
-	struct statvfs sf;
-	struct stat st;
-	size_t block_size;
-	off_t size;
-	int fd, fd2;
-
-	subtest = 1;
-
-	if (statvfs(".", &sf) != 0) e(0);
-	block_size = sf.f_bsize;
-
-	if ((buf = malloc(block_size * 2)) == NULL) e(0);
-
-	/*
-	 * We first need a file that is just large enough that it requires the
-	 * allocation of a metadata block - an indirect block - when more data
-	 * is written to it.  This is fileA.  We keep it open throughout the
-	 * test so we can unlink it immediately.
-	 */
-	if ((fd = open("fileA", O_CREAT | O_TRUNC | O_WRONLY, 0600)) == -1)
-		e(0);
-	if (unlink("fileA") != 0) e(0);
-
-	/*
-	 * Write to fileA until its next block requires the allocation of an
-	 * additional metadata block - an indirect block.
-	 */
-	size = 0;
-	memset(buf, 'A', block_size);
-	do {
-		/*
-		 * Repeatedly write an extra block, until the file consists of
-		 * more blocks than just the file data.
-		 */
-		if (write(fd, buf, block_size) != block_size) e(0);
-		size += block_size;
-		if (size >= block_size * 64) {
-			/*
-			 * It doesn't look like this is going to work.
-			 * Skip this subtest altogether.
-			 */
-			if (close(fd) != 0) e(0);
-			free(buf);
-
-			return;
-		}
-		if (fstat(fd, &st) != 0) e(0);
-	} while (st.st_blocks * 512 == size);
-
-	/* Once we get there, go one step back by truncating by one block. */
-	size -= block_size; /* for MFS, size will end up being 7*block_size */
-	if (ftruncate(fd, size) != 0) e(0);
-
-	/*
-	 * Create a first file, fileB, and write two blocks to it.  FileB's
-	 * blocks are going to end up in the secondary VM cache, associated to
-	 * fileB's inode number (and two different offsets within the file).
-	 * The block cache does not know about files getting deleted, so we can
-	 * unlink fileB immediately after creating it.  So far so good.
-	 */
-	if ((fd2 = open("fileB", O_CREAT | O_TRUNC | O_WRONLY, 0600)) == -1)
-		e(0);
-	if (unlink("fileB") != 0) e(0);
-	memset(buf, 'B', block_size * 2);
-	if (write(fd2, buf, block_size * 2) != block_size * 2) e(0);
-	if (close(fd2) != 0) e(0);
-
-	/*
-	 * Write one extra block to fileA, hoping that this causes allocation
-	 * of a metadata block as well.  This is why we tried to get fileA to
-	 * the point that one more block would also require the allocation of a
-	 * metadata block.  Our intent is to recycle the blocks that we just
-	 * allocated and freed for fileB.  As of writing, for the metadata
-	 * block, this will *not* break the association with fileB's inode,
-	 * which by itself is not a problem, yet crucial to reproducing
-	 * the actual problem a bit later.  Note that the test does not rely on
-	 * whether the file system allocates the data block or the metadata
-	 * block first, although it does need reverse deallocation (see below).
-	 */
-	memset(buf, 'A', block_size);
-	if (write(fd, buf, block_size) != block_size) e(0);
-
-	/*
-	 * Create a new file, fileC, which recycles the inode number of fileB,
-	 * but uses two new blocks to store its data.  These new blocks will
-	 * get associated to the fileB inode number, and one of them will
-	 * thereby eclipse (but not remove) the association of fileA's metadata
-	 * block to the inode of fileB.
-	 */
-	if ((fd2 = open("fileC", O_CREAT | O_TRUNC | O_WRONLY, 0600)) == -1)
-		e(0);
-	if (unlink("fileC") != 0) e(0);
-	memset(buf, 'C', block_size * 2);
-	if (write(fd2, buf, block_size * 2) != block_size * 2) e(0);
-	if (close(fd2) != 0) e(0);
-
-	/*
-	 * Free up the extra fileA blocks for reallocation, in particular
-	 * including the metadata block.  Again, this will not affect the
-	 * contents of the VM cache in any way.  FileA's metadata block remains
-	 * cached in VM, with the inode association for fileB's block.
-	 */
-	if (ftruncate(fd, size) != 0) e(0);
-
-	/*
-	 * Now create yet one more file, fileD, which also recycles the inode
-	 * number of fileB and fileC.  Write two blocks to it; these blocks
-	 * should recycle the blocks we just freed.  One of these is fileA's
-	 * just-freed metadata block, for which the new inode association will
-	 * be equal to the inode association it had already (as long as blocks
-	 * are freed in reverse order of their allocation, which happens to be
-	 * the case for MFS).  As a result, the block is not updated in the VM
-	 * cache, and VM will therefore continue to see the inode association
-	 * for the corresponding block of fileC which is still in the VM cache.
-	 */
-	if ((fd2 = open("fileD", O_CREAT | O_TRUNC | O_RDWR, 0600)) == -1)
-		e(0);
-	memset(buf, 'D', block_size * 2);
-	if (write(fd2, buf, block_size * 2) != block_size * 2) e(0);
-
-	ptr = mmap(NULL, block_size * 2, PROT_READ, MAP_FILE, fd2, 0);
-	if (ptr == MAP_FAILED) e(0);
-
-	/*
-	 * Finally, we can test the issue.  Since fileC's block is still the
-	 * block for which VM has the corresponding inode association, VM will
-	 * now find and map in fileC's block, instead of fileD's block.  The
-	 * result is that we get a memory-mapped area with stale contents,
-	 * different from those of the underlying file.
-	 */
-	if (memcmp(buf, ptr, block_size * 2)) e(0);
-
-	/* Clean up. */
-	if (munmap(ptr, block_size * 2) != 0) e(0);
-
-	if (close(fd2) != 0) e(0);
-	if (unlink("fileD") != 0) e(0);
-
-	if (close(fd) != 0) e(0);
-
-	free(buf);
-}
-
-/*
- * Test mmap on file holes.  Holes are a tricky case with the current VM
- * implementation.  There are two main issues.  First, whenever a file data
- * block is freed, VM has to know about this, or it will later blindly map in
- * the old data.  This, file systems explicitly tell VM (through libminixfs)
- * whenever a block is freed, upon which VM cache forgets the block.  Second,
- * blocks are accessed primarily by a <dev,dev_off> pair and only additionally
- * by a <ino,ino_off> pair.  Holes have no meaningful value for the first pair,
- * but do need to be registered in VM with the second pair, or accessing them
- * will generate a segmentation fault.  Thus, file systems explicitly tell VM
- * (through libminixfs) when a hole is being peeked; libminixfs currently fakes
- * a device offset to make this work.
- */
-static void
-hole_regression(void)
-{
-	struct statvfs st;
-	size_t block_size;
-	char *buf;
-	int fd;
-
-	if (statvfs(".", &st) < 0) e(1);
-
-	block_size = st.f_bsize;
-
-	if ((buf = malloc(block_size)) == NULL) e(2);
-
-	if ((fd = open("testfile", O_CREAT | O_TRUNC | O_RDWR)) < 0) e(3);
-
-	if (unlink("testfile") != 0) e(4);
-
-	/*
-	 * We perform the test twice, in a not-so-perfect attempt to test the
-	 * two aspects independently.  The first part immediately creates a
-	 * hole, and is supposed to fail only if reporting holes to VM does not
-	 * work.  However, it may also fail if a page for a previous file with
-	 * the same inode number as "testfile" is still in the VM cache.
-	 */
-	memset(buf, 12, block_size);
-
-	if (write(fd, buf, block_size) != block_size) e(5);
-
-	if (lseek(fd, block_size * 2, SEEK_CUR) != block_size * 3) e(6);
-
-	memset(buf, 78, block_size);
-
-	if (write(fd, buf, block_size) != block_size) e(7);
-
-	free(buf);
-
-	if ((buf = mmap(NULL, 4 * block_size, PROT_READ, MAP_SHARED | MAP_FILE,
-	    fd, 0)) == MAP_FAILED) e(8);
-
-	if (buf[0 * block_size] != 12 || buf[1 * block_size - 1] != 12) e(9);
-	if (buf[1 * block_size] !=  0 || buf[2 * block_size - 1] !=  0) e(10);
-	if (buf[2 * block_size] !=  0 || buf[3 * block_size - 1] !=  0) e(11);
-	if (buf[3 * block_size] != 78 || buf[4 * block_size - 1] != 78) e(12);
-
-	if (munmap(buf, 4 * block_size) != 0) e(13);
-
-	/*
-	 * The second part first creates file content and only turns part of it
-	 * into a file hole, thus ensuring that VM has previously cached pages
-	 * for the blocks that are freed.  The test will fail if VM keeps the
-	 * pages around in its cache.
-	 */
-	if ((buf = malloc(block_size)) == NULL) e(14);
-
-	if (lseek(fd, block_size, SEEK_SET) != block_size) e(15);
-
-	memset(buf, 34, block_size);
-
-	if (write(fd, buf, block_size) != block_size) e(16);
-
-	memset(buf, 56, block_size);
-
-	if (write(fd, buf, block_size) != block_size) e(17);
-
-	if (ftruncate(fd, block_size) != 0) e(18);
-
-	if (lseek(fd, block_size * 3, SEEK_SET) != block_size * 3) e(19);
-
-	memset(buf, 78, block_size);
-
-	if (write(fd, buf, block_size) != block_size) e(20);
-
-	free(buf);
-
-	if ((buf = mmap(NULL, 4 * block_size, PROT_READ, MAP_SHARED | MAP_FILE,
-	    fd, 0)) == MAP_FAILED) e(21);
-
-	if (buf[0 * block_size] != 12 || buf[1 * block_size - 1] != 12) e(22);
-	if (buf[1 * block_size] !=  0 || buf[2 * block_size - 1] !=  0) e(23);
-	if (buf[2 * block_size] !=  0 || buf[3 * block_size - 1] !=  0) e(24);
-	if (buf[3 * block_size] != 78 || buf[4 * block_size - 1] != 78) e(25);
-
-	if (munmap(buf, 4 * block_size) != 0) e(26);
-
-	close(fd);
-}
-
-/*
- * Test that soft faults during file system I/O do not cause functions to
- * return partial I/O results.
- *
- * We refer to the faults that are caused internally within the operating
- * system as a result of the deadlock mitigation described at the top of this
- * file, as a particular class of "soft faults".  Such soft faults may occur in
- * the middle of an I/O operation, and general I/O semantics dictate that upon
- * partial success, the partial success is returned (and *not* an error).  As a
- * result, these soft faults, if not handled as special cases, may cause even
- * common file system operations such as read(2) on a regular file to return
- * fewer bytes than requested.  Such unexpected short reads are typically not
- * handled well by userland, and the OS must prevent them from occurring if it
- * can.  Note that read(2) is the most problematic, but certainly not the only,
- * case where this problem can occur.
- *
- * Unfortunately, several file system services are not following the proper
- * general I/O semantics - and this includes MFS.  Therefore, for now, we have
- * to test this case using block device I/O, which does do the right thing.
- * In this test we hope that the root file system is mounted on a block device
- * usable for (read-only!) testing purposes.
- */
-static void
-softfault_partial(void)
-{
-	struct statvfs stf;
-	struct stat st;
-	char *buf, *buf2;
-	ssize_t size;
-	int fd;
-
-	if (statvfs("/", &stf) != 0) e(0);
-
-	/*
-	 * If the root file system is not mounted off a block device, or if we
-	 * cannot open that device ourselves, simply skip this subtest.
-	 */
-	if (stat(stf.f_mntfromname, &st) != 0 || !S_ISBLK(st.st_mode))
-		return; /* skip subtest */
-
-	if ((fd = open(stf.f_mntfromname, O_RDONLY)) == -1)
-		return; /* skip subtest */
-
-	/*
-	 * See if we can read in the first two full blocks, or two pages worth
-	 * of data, whichever is larger.  If that fails, there is no point in
-	 * continuing the test.
-	 */
-	size = MAX(stf.f_bsize, PAGE_SIZE) * 2;
-
-	if ((buf = mmap(NULL, size, PROT_READ | PROT_READ,
-	    MAP_ANON | MAP_PRIVATE | MAP_PREALLOC, -1, 0)) == MAP_FAILED) e(0);
-
-	if (read(fd, buf, size) != size) {
-		munmap(buf, size);
-		close(fd);
-		return; /* skip subtest */
-	}
-
-	lseek(fd, 0, SEEK_SET);
-
-	/*
-	 * Now attempt a read to a partially faulted-in buffer.  The first time
-	 * around, the I/O transfer will generate a fault and return partial
-	 * success.  In that case, the entire I/O transfer should be retried
-	 * after faulting in the missing page(s), thus resulting in the read
-	 * succeeding in full.
-	 */
-	if ((buf2 = mmap(NULL, size, PROT_READ | PROT_READ,
-	    MAP_ANON | MAP_PRIVATE, -1, 0)) == MAP_FAILED) e(0);
-	buf2[0] = '\0'; /* fault in the first page */
-
-	if (read(fd, buf2, size) != size) e(0);
-
-	/* The result should be correct, too. */
-	if (memcmp(buf, buf2, size)) e(0);
-
-	/* Clean up. */
-	munmap(buf2, size);
-	munmap(buf, size);
-
-	close(fd);
-}
-
 int
 main(int argc, char *argv[])
 {
-	int i, iter = 2;
+	int iter = 2;
 
 	start(74);
 
 	basic_regression();
 
-	nonedev_regression();
-
-	/*
-	 * Any inode or block allocation happening concurrently with this
-	 * subtest will make the subtest succeed without testing the actual
-	 * issue.  Thus, repeat the subtest a fair number of times.
-	 */
-	for (i = 0; i < 10; i++)
-		corruption_regression();
-
-	hole_regression();
-
 	test_memory_types_vs_operations();
-
-	softfault_partial();
 
 	makefiles(MAXFILES);
 

@@ -59,7 +59,7 @@ unsigned long rs_irq_set = 0;
 
 struct kmessages kmess;
 
-static void tty_timed_out(int arg);
+static void tty_timed_out(minix_timer_t *tp);
 static void settimer(tty_t *tty_ptr, int enable);
 static void in_transfer(tty_t *tp);
 static int tty_echo(tty_t *tp, int ch);
@@ -139,6 +139,8 @@ static const char lined[TTLINEDNAMELEN] = "termios";	/* line discipline */
 static void sef_local_startup(void);
 static int sef_cb_init_fresh(int type, sef_init_info_t *info);
 static void sef_cb_signal_handler(int signo);
+
+extern struct minix_kerninfo *_minix_kerninfo;
 
 /*===========================================================================*
  *				tty_task				     *
@@ -294,7 +296,9 @@ static void sef_local_startup()
 {
   /* Register init callbacks. */
   sef_setcb_init_fresh(sef_cb_init_fresh);
-  sef_setcb_init_restart(SEF_CB_INIT_RESTART_STATEFUL);
+  sef_setcb_init_restart(sef_cb_init_fresh);
+
+  /* No live update support for now. */
 
   /* Register signal callbacks. */
   sef_setcb_signal_handler(sef_cb_signal_handler);
@@ -395,7 +399,8 @@ do_new_kmess(void)
 	int next, bytes, copy, restore = 0;
 	tty_t *tp, rtp;
 
-	kmess_ptr = get_minix_kerninfo()->kmessages;
+	assert(_minix_kerninfo);
+	kmess_ptr = _minix_kerninfo->kmessages;
 
 	/* The kernel buffer is circular; print only the new part. Determine
 	 * how many new bytes there are with the help of current and
@@ -1573,11 +1578,11 @@ static void tty_init()
 /*===========================================================================*
  *				tty_timed_out				     *
  *===========================================================================*/
-static void tty_timed_out(int arg)
+static void tty_timed_out(minix_timer_t *tp)
 {
 /* This timer has expired. Set the events flag, to force processing. */
   tty_t *tty_ptr;
-  tty_ptr = &tty_table[arg];
+  tty_ptr = &tty_table[tmr_arg(tp)->ta_int];
   tty_ptr->tty_min = 0;			/* force read to succeed */
   tty_ptr->tty_events = 1;		
 }

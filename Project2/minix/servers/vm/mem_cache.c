@@ -30,7 +30,6 @@ static int cache_unreference(struct phys_region *pr);
 static int cache_sanitycheck(struct phys_region *pr, const char *file, int line);
 static int cache_writable(struct phys_region *pr);
 static int cache_resize(struct vmproc *vmp, struct vir_region *vr, vir_bytes l);
-static int cache_lowshrink(struct vir_region *vr, vir_bytes len);
 static int cache_pagefault(struct vmproc *vmp, struct vir_region *region, 
         struct phys_region *ph, int write, vfs_callback_t cb, void *state,
 	int len, int *io);
@@ -41,7 +40,6 @@ struct mem_type mem_type_cache = {
 	.ev_reference = cache_reference,
 	.ev_unreference = cache_unreference,
 	.ev_resize = cache_resize,
-	.ev_lowshrink = cache_lowshrink,
 	.ev_sanitycheck = cache_sanitycheck,
 	.ev_pagefault = cache_pagefault,
 	.writable = cache_writable,
@@ -86,20 +84,14 @@ static int cache_resize(struct vmproc *vmp, struct vir_region *vr, vir_bytes l)
 	return ENOMEM;
 }
 
-static int cache_lowshrink(struct vir_region *vr, vir_bytes len)
-{
-        return OK;
-}
-
 int
 do_mapcache(message *msg)
 {
 	dev_t dev = msg->m_vmmcp.dev;
-	uint64_t dev_off = msg->m_vmmcp.dev_offset;
+	off_t dev_off = msg->m_vmmcp.dev_offset;
 	off_t ino_off = msg->m_vmmcp.ino_offset;
 	int n;
 	phys_bytes bytes = msg->m_vmmcp.pages * VM_PAGE_SIZE;
-	phys_bytes alloc_bytes;
 	struct vir_region *vr;
 	struct vmproc *caller;
 	vir_bytes offset;
@@ -115,26 +107,11 @@ do_mapcache(message *msg)
 
 	if(bytes < VM_PAGE_SIZE) return EINVAL;
 
-	alloc_bytes = bytes;
-#ifdef _MINIX_MAGIC
-	/* Make sure there is a 1-page hole available before the region,
-	 * in case instrumentation needs to allocate in-band metadata later.
-	 * This does effectively halve the usable part of the caller's address
-	 * space, though, so only do this if we are instrumenting at all.
-	 * Also make sure it falls within the mmap range, so that it is
-	 * transferred upon live update.  This again cuts the usable part of
-	 * the address space for caching purposes in half.
-	 */
-	alloc_bytes += VM_PAGE_SIZE;
-#endif
-	if (!(vr = map_page_region(caller, VM_MMAPBASE, VM_MMAPTOP,
-	    alloc_bytes, VR_ANON | VR_WRITABLE, 0, &mem_type_cache))) {
+	if(!(vr = map_page_region(caller, VM_PAGE_SIZE, VM_DATATOP, bytes,
+		VR_ANON | VR_WRITABLE, 0, &mem_type_cache))) {
 		printf("VM: map_page_region failed\n");
 		return ENOMEM;
 	}
-#ifdef _MINIX_MAGIC
-	map_unmap_region(caller, vr, 0, VM_PAGE_SIZE);
-#endif
 
 	assert(vr->length == bytes);
 
@@ -145,8 +122,7 @@ do_mapcache(message *msg)
 		assert(offset < vr->length);
 
 		if(!(hb = find_cached_page_bydev(dev, dev_off + offset,
-		    msg->m_vmmcp.ino, ino_off + offset, 1)) ||
-		    (hb->flags & VMSF_ONCE)) {
+			msg->m_vmmcp.ino, ino_off + offset, 1))) {
 			map_unmap_region(caller, vr, 0, bytes);
 			return ENOENT;
 		}
@@ -197,9 +173,8 @@ do_setcache(message *msg)
 {
 	int r;
 	dev_t dev = msg->m_vmmcp.dev;
-	uint64_t dev_off = msg->m_vmmcp.dev_offset;
+	off_t dev_off = msg->m_vmmcp.dev_offset;
 	off_t ino_off = msg->m_vmmcp.ino_offset;
-	int flags = msg->m_vmmcp.flags;
 	int n;
 	struct vmproc *caller;
 	phys_bytes offset;
@@ -234,8 +209,7 @@ do_setcache(message *msg)
 		if((hb=find_cached_page_bydev(dev, dev_off + offset,
 			msg->m_vmmcp.ino, ino_off + offset, 1))) {
 			/* block inode info updated */
-			if(hb->page != phys_region->ph ||
-			    (hb->flags & VMSF_ONCE)) {
+			if(hb->page != phys_region->ph) {
 				/* previous cache entry has become
 				 * obsolete; make a new one. rmcache
 				 * removes it from the cache and frees
@@ -262,8 +236,8 @@ do_setcache(message *msg)
 
 		phys_region->memtype = &mem_type_cache;
 
-		if((r=addcache(dev, dev_off + offset, msg->m_vmmcp.ino,
-		    ino_off + offset, flags, phys_region->ph)) != OK) {
+		if((r=addcache(dev, dev_off + offset,
+			msg->m_vmmcp.ino, ino_off + offset, phys_region->ph)) != OK) {
 			printf("VM: addcache failed\n");
 			return r;
 		}
@@ -272,38 +246,6 @@ do_setcache(message *msg)
 #if CACHE_SANITY
 	cache_sanitycheck_internal();
 #endif
-
-	return OK;
-}
-
-/*
- * Forget all pages associated to a particular block in the cache.
- */
-int
-do_forgetcache(message *msg)
-{
-	struct cached_page *hb;
-	dev_t dev;
-	uint64_t dev_off;
-	phys_bytes bytes, offset;
-
-	dev = msg->m_vmmcp.dev;
-	dev_off = msg->m_vmmcp.dev_offset;
-	bytes = msg->m_vmmcp.pages * VM_PAGE_SIZE;
-
-	if (bytes < VM_PAGE_SIZE)
-		return EINVAL;
-
-	if (dev_off % PAGE_SIZE) {
-		printf("VM: unaligned cache operation\n");
-		return EFAULT;
-	}
-
-	for (offset = 0; offset < bytes; offset += VM_PAGE_SIZE) {
-		if ((hb = find_cached_page_bydev(dev, dev_off + offset,
-		    VMC_NO_INODE, 0 /*ino_off*/, 0 /*touchlru*/)) != NULL)
-			rmcache(hb);
-	}
 
 	return OK;
 }

@@ -1,4 +1,4 @@
 PROG=	devsize
-MAN=	devsize.8
+MAN=
 
 .include <bsd.prog.mk>

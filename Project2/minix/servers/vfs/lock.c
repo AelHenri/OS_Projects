@@ -10,32 +10,29 @@
 #include <minix/u64.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include <assert.h>
 #include "file.h"
+#include "scratchpad.h"
 #include "lock.h"
 #include "vnode.h"
 
 /*===========================================================================*
  *				lock_op					     *
  *===========================================================================*/
-int lock_op(int fd, int req, vir_bytes arg)
+int lock_op(f, req)
+struct filp *f;
+int req;			/* either F_SETLK or F_SETLKW */
 {
 /* Perform the advisory locking required by POSIX. */
+
   int r, ltype, i, conflict = 0, unlocking = 0;
   mode_t mo;
   off_t first, last;
-  struct filp *f;
   struct flock flock;
   struct file_lock *flp, *flp2, *empty;
 
-  assert(req == F_GETLK || req == F_SETLK || req == F_SETLKW);
-
-  f = fp->fp_filp[fd];
-  assert(f != NULL);
-
   /* Fetch the flock structure from user space. */
-  r = sys_datacopy_wrapper(who_e, arg, VFS_PROC_NR, (vir_bytes)&flock,
-      sizeof(flock));
+  r = sys_datacopy_wrapper(who_e, scratch(fp).io.io_buffer, VFS_PROC_NR,
+		   (vir_bytes) &flock, sizeof(flock));
   if (r != OK) return(EINVAL);
 
   /* Make some error checks. */
@@ -90,10 +87,7 @@ int lock_op(int fd, int req, vir_bytes arg)
 			return(EAGAIN);
 		} else {
 			/* For F_SETLKW, suspend the process. */
-			fp->fp_flock.fd = fd;
-			fp->fp_flock.cmd = req;
-			fp->fp_flock.arg = arg;
-			suspend(FP_BLOCKED_ON_FLOCK);
+			suspend(FP_BLOCKED_ON_LOCK);
 			return(SUSPEND);
 		}
 	}
@@ -147,8 +141,8 @@ int lock_op(int fd, int req, vir_bytes arg)
 	}
 
 	/* Copy the flock structure back to the caller. */
-	r = sys_datacopy_wrapper(VFS_PROC_NR, (vir_bytes)&flock, who_e, arg,
-	    sizeof(flock));
+	r = sys_datacopy_wrapper(VFS_PROC_NR, (vir_bytes) &flock, who_e,
+		scratch(fp).io.io_buffer, sizeof(flock));
 	return(r);
   }
 
@@ -169,8 +163,7 @@ int lock_op(int fd, int req, vir_bytes arg)
 /*===========================================================================*
  *				lock_revive				     *
  *===========================================================================*/
-void
-lock_revive(void)
+void lock_revive()
 {
 /* Go find all the processes that are waiting for any kind of lock and
  * revive them all.  The ones that are still blocked will block again when
@@ -185,7 +178,7 @@ lock_revive(void)
 
   for (fptr = &fproc[0]; fptr < &fproc[NR_PROCS]; fptr++){
 	if (fptr->fp_pid == PID_FREE) continue;
-	if (fptr->fp_blocked_on == FP_BLOCKED_ON_FLOCK) {
+	if (fptr->fp_blocked_on == FP_BLOCKED_ON_LOCK) {
 		revive(fptr->fp_endpoint, 0);
 	}
   }

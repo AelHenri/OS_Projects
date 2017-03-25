@@ -34,8 +34,7 @@
 /*===========================================================================*
  *				do_exec					     *
  *===========================================================================*/
-int
-do_exec(void)
+int do_exec()
 {
 	message m;
 
@@ -92,10 +91,6 @@ int do_newexec(void)
 		rmp->mp_effuid = args.new_uid;
 		rmp->mp_effgid = args.new_gid;
 	}
-
-	/* Always update the saved user and group ID at this point. */
-	rmp->mp_svuid = rmp->mp_effuid;
-	rmp->mp_svgid = rmp->mp_effgid;
 
 	/* A process is considered 'tainted' when it's executing with
 	 * setuid or setgid bit set, or when the real{u,g}id doesn't

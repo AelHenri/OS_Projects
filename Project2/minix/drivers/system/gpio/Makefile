@@ -2,12 +2,8 @@
 PROG=	gpio
 SRCS=	gpio.c
 
-FILES=${PROG}.conf
-FILESNAME=${PROG}
-FILESDIR= /etc/system.conf.d
-
-DPADD+=	${LIBVTREEFS} ${LIBFSDRIVER} ${LIBSYS} ${LIBGPIO} ${LIBCLKCONF}
-LDADD+=	-lvtreefs -lfsdriver -lsys -lgpio -lclkconf
+DPADD+=	${LIBBLOCKDRIVER} ${LIBSYS} ${LIBGPIO} ${LIBCLKCONF}
+LDADD+=	-lvtreefs -lsys -lgpio -lclkconf
 
 # This is a system driver.
 CPPFLAGS+= -D_SYSTEM=1

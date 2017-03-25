@@ -2,7 +2,6 @@
 #define _SFFS_INC_H
 
 #include <minix/drivers.h>
-#include <minix/fsdriver.h>
 #include <minix/vfsif.h>
 #include <minix/optset.h>
 #include <minix/sffs.h>
@@ -16,6 +15,7 @@
 #define dprintf(x)
 #endif
 
+#include "type.h"
 #include "const.h"
 #include "proto.h"
 #include "glo.h"

@@ -2,7 +2,6 @@
 #include <assert.h>
 #include <minix/drivers.h>
 #include <minix/driver.h>
-#include <minix/optset.h>
 #include <termios.h>
 #include <sys/ttycom.h>
 #include <sys/ttydefaults.h>
@@ -23,7 +22,9 @@
 /* A device exists if at least its 'devread' function is defined. */
 #define tty_active(tp)	((tp)->tty_devread != NULL)
 
-static void tty_timed_out(int arg);
+struct kmessages kmess;
+
+static void tty_timed_out(minix_timer_t *tp);
 static void settimer(tty_t *tty_ptr, int enable);
 static void in_transfer(tty_t *tp);
 static int tty_echo(tty_t *tp, int ch);
@@ -40,6 +41,8 @@ static ssize_t do_read(devminor_t minor, u64_t position, endpoint_t endpt,
 	cp_grant_id_t grant, size_t size, int flags, cdev_id_t id);
 static ssize_t do_write(devminor_t minor, u64_t position, endpoint_t endpt,
 	cp_grant_id_t grant, size_t size, int flags, cdev_id_t id);
+static int do_ioctl(devminor_t minor, unsigned long request, endpoint_t endpt,
+	cp_grant_id_t grant, int flags, endpoint_t user_endpt, cdev_id_t id);
 static int do_cancel(devminor_t minor, endpoint_t endpt, cdev_id_t id);
 static int do_select(devminor_t minor, unsigned int ops, endpoint_t endpt);
 
@@ -48,7 +51,7 @@ static struct chardriver tty_tab = {
 	.cdr_close	= do_close,
 	.cdr_read	= do_read,
 	.cdr_write	= do_write,
-	.cdr_ioctl	= tty_ioctl,
+	.cdr_ioctl	= do_ioctl,
 	.cdr_cancel	= do_cancel,
 	.cdr_select	= do_select
 };
@@ -86,39 +89,14 @@ static const char lined[TTLINEDNAMELEN] = "termios";	/* line discipline */
 /* Global variables for the TTY task (declared extern in tty.h). */
 tty_t tty_table[NR_PTYS];
 u32_t system_hz;
-int tty_gid;
-
-static struct optset optset_table[] = {
-  { "gid",	OPT_INT,	&tty_gid,	10	},
-  { NULL,	0,		NULL,		0	}
-};
 
 static void tty_startup(void);
 static int tty_init(int, sef_init_info_t *);
 
 /*===========================================================================*
- *				is_pty					     *
- *===========================================================================*/
-static int is_pty(devminor_t line)
-{
-/* Return TRUE if the given minor device number refers to a pty (the master
- * side of a pty/tty pair), and FALSE otherwise.
- */
-
-  if (line == PTMX_MINOR)
-	return TRUE;
-  if (line >= PTYPX_MINOR && line < PTYPX_MINOR + NR_PTYS)
-	return TRUE;
-  if (line >= UNIX98_MINOR && line < UNIX98_MINOR + NR_PTYS * 2 && !(line & 1))
-	return TRUE;
-
-  return FALSE;
-}
-
-/*===========================================================================*
  *				tty_task				     *
  *===========================================================================*/
-int main(int argc, char **argv)
+int main(void)
 {
 /* Main routine of the terminal task. */
 
@@ -127,8 +105,6 @@ int main(int argc, char **argv)
   int line;
   int r;
   register tty_t *tp;
-
-  env_setargs(argc, argv);
 
   tty_startup();
 
@@ -169,10 +145,11 @@ int main(int argc, char **argv)
 	if (OK != chardriver_get_minor(&tty_mess, &line))
 		continue;
 
-	if (is_pty(line)) {
+	if ((line >= PTYPX_MINOR) && (line < (PTYPX_MINOR + NR_PTYS)) &&
+			tty_mess.m_type != CDEV_IOCTL) {
 		/* Terminals and pseudo terminals belong together. We can only
-		 * make a distinction between the two based on minor number and
-		 * not on position in the tty_table. Hence this special case.
+		 * make a distinction between the two based on position in the
+		 * tty_table and not on minor number. Hence this special case.
 		 */
 		do_pty(&tty_mess, ipc_status);
 		continue;
@@ -196,8 +173,6 @@ line2tty(devminor_t line)
 		tp = tty_addr(line - TTYPX_MINOR);
 	} else if ((line - PTYPX_MINOR) < NR_PTYS) {
 		tp = tty_addr(line - PTYPX_MINOR);
-	} else if ((line - UNIX98_MINOR) < NR_PTYS * 2) {
-		tp = tty_addr((line - UNIX98_MINOR) >> 1);
 	} else {
 		tp = NULL;
 	}
@@ -213,6 +188,8 @@ static void tty_startup(void)
   /* Register init callbacks. */
   sef_setcb_init_fresh(tty_init);
   sef_setcb_init_restart(tty_init);
+
+  /* No live update support for now. */
 
   /* No signal support for now. */
 
@@ -338,9 +315,9 @@ static ssize_t do_write(devminor_t minor, u64_t UNUSED(position),
 }
 
 /*===========================================================================*
- *				tty_ioctl				     *
+ *				do_ioctl				     *
  *===========================================================================*/
-int tty_ioctl(devminor_t minor, unsigned long request, endpoint_t endpt,
+static int do_ioctl(devminor_t minor, unsigned long request, endpoint_t endpt,
 	cp_grant_id_t grant, int flags, endpoint_t user_endpt, cdev_id_t id)
 {
 /* Perform an IOCTL on this terminal. POSIX termios calls are handled
@@ -466,10 +443,6 @@ static int do_open(devminor_t minor, int access, endpoint_t user_endpt)
 
   if ((tp = line2tty(minor)) == NULL)
 	return ENXIO;
-
-  /* Make sure the user is not mixing Unix98 and old-style ends. */
-  if ((*tp->tty_mayopen)(tp, minor) == FALSE)
-	return EIO;
 
   if (!(access & CDEV_NOCTTY)) {
 	tp->tty_pgrp = user_endpt;
@@ -743,7 +716,7 @@ int count;			/* number of input characters */
  * the number of characters processed.
  */
 
-  int ch, ct;
+  int ch, sig, ct;
   int timeset = FALSE;
 
   for (ct = 0; ct < count; ct++) {
@@ -1197,6 +1170,9 @@ tty_t *tp;
 
   /* Setting the output speed to zero hangs up the phone. */
   if (tp->tty_termios.c_ospeed == B0) sigchar(tp, SIGHUP, 1);
+
+  /* Set new line speed, character size, etc at the device level. */
+  (*tp->tty_ioctl)(tp, 0);
 }
 
 /*===========================================================================*
@@ -1263,10 +1239,6 @@ static int tty_init(int UNUSED(type), sef_init_info_t *UNUSED(info))
 
   system_hz = sys_hz();
 
-  tty_gid = -1;
-  if (env_argc > 1)
-	optset_parse(optset_table, env_argv[1]);
-
   /* Initialize the terminal lines. */
   memset(tty_table, '\0' , sizeof(tty_table));
 
@@ -1279,9 +1251,10 @@ static int tty_init(int UNUSED(type), sef_init_info_t *UNUSED(info))
   	tp->tty_min = 1;
 	tp->tty_incaller = tp->tty_outcaller = tp->tty_iocaller = NONE;
   	tp->tty_termios = termios_defaults;
-	tp->tty_icancel = tp->tty_ocancel = tp->tty_close =
+  	tp->tty_icancel = tp->tty_ocancel = tp->tty_ioctl = tp->tty_close =
 			  tp->tty_open = tty_devnop;
 	pty_init(tp);
+	tp->tty_minor = s + TTYPX_MINOR;
   }
 
   return OK;
@@ -1290,11 +1263,11 @@ static int tty_init(int UNUSED(type), sef_init_info_t *UNUSED(info))
 /*===========================================================================*
  *				tty_timed_out				     *
  *===========================================================================*/
-static void tty_timed_out(int arg)
+static void tty_timed_out(minix_timer_t *tp)
 {
 /* This timer has expired. Set the events flag, to force processing. */
   tty_t *tty_ptr;
-  tty_ptr = &tty_table[arg];
+  tty_ptr = &tty_table[tmr_arg(tp)->ta_int];
   tty_ptr->tty_min = 0;			/* force read to succeed */
   tty_ptr->tty_events = 1;		
 }

@@ -1,4 +1,4 @@
 PROG=	repartition
-MAN=	repartition.8
+MAN=
 
 .include <bsd.prog.mk>

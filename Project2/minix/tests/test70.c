@@ -62,7 +62,7 @@ doseeks(int seekbase)
 }
 
 int
-main(void)
+main()
 {
   start(70);
   pid_t f;

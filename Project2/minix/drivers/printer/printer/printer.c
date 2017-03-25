@@ -92,7 +92,7 @@ static void printer_intr(unsigned int mask);
 static void sef_local_startup(void);
 static int sef_cb_init_fresh(int type, sef_init_info_t *info);
 EXTERN int sef_cb_lu_prepare(int state);
-EXTERN int sef_cb_lu_state_isvalid(int state, int flags);
+EXTERN int sef_cb_lu_state_isvalid(int state);
 EXTERN void sef_cb_lu_state_dump(int state);
 
 /* Entry points to this driver. */
@@ -123,6 +123,7 @@ static void sef_local_startup()
 {
   /* Register init callbacks. */
   sef_setcb_init_fresh(sef_cb_init_fresh);
+  sef_setcb_init_lu(sef_cb_init_fresh);
   sef_setcb_init_restart(sef_cb_init_fresh);
 
   /* Register live update callbacks. */

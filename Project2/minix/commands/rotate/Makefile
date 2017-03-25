@@ -1,4 +1,4 @@
-SCRIPTS=	rotate.sh
-MAN=		rotate.8
+SCRIPTS= rotate.sh
+MAN=
 
 .include <bsd.prog.mk>

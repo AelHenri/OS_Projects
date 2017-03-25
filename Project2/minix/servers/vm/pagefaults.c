@@ -20,6 +20,7 @@
 
 #include <errno.h>
 #include <string.h>
+#include <env.h>
 #include <stdio.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -50,7 +51,7 @@ struct hm_state {
 
 static void handle_memory_continue(struct vmproc *vmp, message *m,
         void *arg, void *statearg);
-static int handle_memory_step(struct hm_state *hmstate, int retry);
+static int handle_memory_step(struct hm_state *hmstate);
 static void handle_memory_final(struct hm_state *state, int result);
 
 /*===========================================================================*
@@ -60,7 +61,7 @@ char *pf_errstr(u32_t err)
 {
 	static char buf[100];
 
-	snprintf(buf, sizeof(buf), "err 0x%lx ", (long)err);
+	sprintf(buf, "err 0x%lx ", (long)err);
 	if(PFERR_NOPAGE(err)) strcat(buf, "nopage ");
 	if(PFERR_PROT(err)) strcat(buf, "protection ");
 	if(PFERR_WRITE(err)) strcat(buf, "write");
@@ -182,7 +183,7 @@ static void handle_memory_continue(struct vmproc *vmp, message *m,
 		return;
 	}
 
-	r = handle_memory_step(state, TRUE /*retry*/);
+	r = handle_memory_step(state);
 
 	assert(state->valid == VALID);
 
@@ -197,7 +198,7 @@ static void handle_memory_continue(struct vmproc *vmp, message *m,
 
 static void handle_memory_final(struct hm_state *state, int result)
 {
-	int r, flag;
+	int r;
 
 	assert(state);
 	assert(state->valid == VALID);
@@ -215,15 +216,9 @@ static void handle_memory_final(struct hm_state *state, int result)
 			assert(state->caller == VFS_PROC_NR);
 			/* If a transaction ID was set, reset it */
 			msg.m_type = TRNS_ADD_ID(msg.m_type, state->transid);
-			flag = AMF_NOREPLY;
-		} else
-			flag = 0;
+		}
 
-		/*
-		 * Use AMF_NOREPLY only if there was a transaction ID, which
-		 * signifies that VFS issued the request asynchronously.
-		 */
-		if(asynsend3(state->caller, &msg, flag) != OK) {
+		if(asynsend3(state->caller, &msg, 0) != OK) {
 			panic("handle_memory_final: asynsend3 failed");
 		}
 
@@ -276,7 +271,7 @@ int handle_memory_start(struct vmproc *vmp, vir_bytes mem, vir_bytes len,
 	state.valid = VALID;
 	state.vfs_avail = vfs_avail;
 
-	r = handle_memory_step(&state, FALSE /*retry*/);
+	r = handle_memory_step(&state);
 
 	if(r == SUSPEND) {
 		assert(caller != NONE);
@@ -333,11 +328,9 @@ void do_memory(void)
 	}
 }
 
-static int handle_memory_step(struct hm_state *hmstate, int retry)
+static int handle_memory_step(struct hm_state *hmstate)
 {
 	struct vir_region *region;
-	vir_bytes offset, length, sublen;
-	int r;
 
 	/* Page-align memory and length. */
 	assert(hmstate);
@@ -346,6 +339,7 @@ static int handle_memory_step(struct hm_state *hmstate, int retry)
 	assert(!(hmstate->len % VM_PAGE_SIZE));
 
 	while(hmstate->len > 0) {
+		int r;
 		if(!(region = map_lookup(hmstate->vmp, hmstate->mem, NULL))) {
 #if VERBOSE
 			map_printmap(hmstate->vmp);
@@ -357,59 +351,30 @@ static int handle_memory_step(struct hm_state *hmstate, int retry)
 			printf("VM: do_memory: write to unwritable map\n");
 #endif
 			return EFAULT;
-		}
-
-		assert(region->vaddr <= hmstate->mem);
-		assert(!(region->vaddr % VM_PAGE_SIZE));
-		offset = hmstate->mem - region->vaddr;
-		length = hmstate->len;
-		if (offset + length > region->length)
-			length = region->length - offset;
-
-		/*
-		 * Handle one page at a time.  While it seems beneficial to
-		 * handle multiple pages in one go, the opposite is true:
-		 * map_handle_memory will handle one page at a time anyway, and
-		 * if we give it the whole range multiple times, it will have
-		 * to recheck pages it already handled.  In addition, in order
-		 * to handle one-shot pages, we need to know whether we are
-		 * retrying a single page, and that is not possible if this is
-		 * hidden in map_handle_memory.
-		 */
-		while (length > 0) {
-			sublen = VM_PAGE_SIZE;
-
-			assert(sublen <= length);
-			assert(offset + sublen <= region->length);
-
-			/*
-			 * Upon the second try for this range, do not allow
-			 * calling into VFS again.  This prevents eternal loops
-			 * in case the FS messes up, and allows one-shot pages
-			 * to be mapped in on the second call.
-			 */
+		} else {
+			vir_bytes offset, sublen;
+			assert(region->vaddr <= hmstate->mem);
+			assert(!(region->vaddr % VM_PAGE_SIZE));
+			offset = hmstate->mem - region->vaddr;
+			sublen = hmstate->len;
+			if(offset + sublen > region->length)
+				sublen = region->length - offset;
+	
 			if((region->def_memtype == &mem_type_mappedfile &&
-			    (!hmstate->vfs_avail || retry)) ||
-			    hmstate->caller == NONE) {
-				r = map_handle_memory(hmstate->vmp, region,
-				    offset, sublen, hmstate->wrflag, NULL,
-				    NULL, 0);
+			  !hmstate->vfs_avail) || hmstate->caller == NONE) {
+				r = map_handle_memory(hmstate->vmp, region, offset,
+				   sublen, hmstate->wrflag, NULL, NULL, 0);
 				assert(r != SUSPEND);
 			} else {
-				r = map_handle_memory(hmstate->vmp, region,
-				    offset, sublen, hmstate->wrflag,
-				    handle_memory_continue, hmstate,
-				    sizeof(*hmstate));
+				r = map_handle_memory(hmstate->vmp, region, offset,
+				   sublen, hmstate->wrflag, handle_memory_continue,
+					hmstate, sizeof(*hmstate));
 			}
 
 			if(r != OK) return r;
 
 			hmstate->len -= sublen;
 			hmstate->mem += sublen;
-
-			offset += sublen;
-			length -= sublen;
-			retry = FALSE;
 		}
 	}
 

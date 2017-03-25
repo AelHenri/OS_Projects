@@ -1,5 +1,5 @@
-SCRIPTS=	updateboot.sh
-MAN=		updateboot.8
-BINDIR=		/bin
+SCRIPTS= updateboot.sh
+BINDIR= /bin
+MAN=
 
 .include <bsd.prog.mk>

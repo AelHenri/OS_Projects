@@ -1,4 +1,4 @@
 PROG=	loadramdisk
-MAN=	loadramdisk.8
+MAN=
 
 .include <bsd.prog.mk>

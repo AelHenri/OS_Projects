@@ -4,15 +4,12 @@
  */
 
 #include <errno.h>
-#include <paths.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <stdarg.h>
 #include <stdio.h>
 #include <sys/statvfs.h>
 #include <sys/syslimits.h>
-#include <sys/wait.h>
 
 #include "common.h"
 
@@ -92,7 +89,7 @@ int test_nr;
   char buf[128];
 
   sprintf(buf, "rm -rf DIR_%02d >/dev/null 2>&1", test_nr);
-  if (system_p(buf) != 0) printf("Warning: system(\"%s\") failed\n", buf);
+  if (system(buf) != 0) printf("Warning: system(\"%s\") failed\n", buf);
 }
 
 void rm_rf_ppdir(test_nr)
@@ -127,24 +124,6 @@ void e_f(char *file, int line, int n)
 void cleanup()
 {
   if (chdir("..") == 0 && common_test_nr != -1) rm_rf_dir(common_test_nr);
-}
-
-void fail_printf(const char *file, const char *func, int line,
-	const char *fmt, ...) {
-	va_list ap;
-	char buf[1024];
-	size_t len;
-
-	len = snprintf(buf, sizeof(buf), "[%s:%s:%d] ", file, func, line);
-
-	va_start(ap, fmt);
-	len += vsnprintf(buf + len, sizeof(buf) - len, fmt, ap);
-	va_end(ap);
-
-	snprintf(buf + len, sizeof(buf) - len, " errno=%d error=%s",
-		errno, strerror(errno));
-
-	em(line, buf);
 }
 
 void quit()
@@ -191,9 +170,9 @@ printprogress(char *msg, int i, int max)
         prev_time = now;
 }
 
-void getmem(uint32_t *total, uint32_t *free, uint32_t *cached)
+void getmem(u32_t *total, u32_t *free, u32_t *cached)
 {
-        uint32_t pagesize, largest;
+        u32_t pagesize, largest;
         FILE *f = fopen("/proc/meminfo", "r");
         if(!f) return;
         if(fscanf(f, "%u %u %u %u %u", &pagesize, total, free,
@@ -202,53 +181,5 @@ void getmem(uint32_t *total, uint32_t *free, uint32_t *cached)
 		exit(1);
 	}
         fclose(f);
-}
-
-static int get_setting(const char *name, int def)
-{
-	const char *value;
-
-	value = getenv(name);
-	if (!value || !*value) return def;
-	if (strcmp(value, "yes") == 0) return 1;
-	if (strcmp(value, "no") == 0) return 0;
-
-	fprintf(stderr, "warning: invalid $%s value: %s\n", name, value);
-	return 0;
-}
-
-int get_setting_use_network(void)
-{
-	/* set $USENETWORK to "yes" or "no" to indicate whether
-	 * an internet connection is to be expected; defaults to "no"
-	 */
-	return get_setting("USENETWORK", 0);
-}
-
-int
-system_p(const char *command)
-{
-	extern char **environ;
-	pid_t pid;
-	int pstat;
-	const char *argp[] = {"sh", "-c", "-p", NULL, NULL};
-	argp[3] = command;
-
-	switch(pid = vfork()) {
-	case -1:			/* error */
-		return -1;
-	case 0:				/* child */
-		execve(_PATH_BSHELL, __UNCONST(argp), environ);
-		_exit(127);
-	}
-
-	while (waitpid(pid, &pstat, 0) == -1) {
-		if (errno != EINTR) {
-			pstat = -1;
-			break;
-		}
-	}
-
-	return (pstat);
 }
 

@@ -18,6 +18,7 @@
 #include <minix/com.h>
 #include <minix/u64.h>
 #include "file.h"
+#include "scratchpad.h"
 #include "lock.h"
 #include <sys/dirent.h>
 #include <assert.h>
@@ -30,7 +31,7 @@ static char mode_map[] = {R_BIT, W_BIT, R_BIT|W_BIT, 0};
 
 static struct vnode *new_node(struct lookup *resolve, int oflags,
 	mode_t bits);
-static int pipe_open(int fd, struct vnode *vp, mode_t bits, int oflags);
+static int pipe_open(struct vnode *vp, mode_t bits, int oflags);
 
 /*===========================================================================*
  *				do_open					     *
@@ -49,7 +50,7 @@ int do_open(void)
   if (copy_path(fullpath, sizeof(fullpath)) != OK)
 	return(err_code);
 
-  return common_open(fullpath, open_flags, 0 /*omode*/, FALSE /*for_exec*/);
+  return common_open(fullpath, open_flags, 0 /*omode*/);
 }
 
 /*===========================================================================*
@@ -74,13 +75,13 @@ int do_creat(void)
   if (fetch_name(vname, vname_length, fullpath) != OK)
 	return(err_code);
 
-  return common_open(fullpath, open_flags, create_mode, FALSE /*for_exec*/);
+  return common_open(fullpath, open_flags, create_mode);
 }
 
 /*===========================================================================*
  *				common_open				     *
  *===========================================================================*/
-int common_open(char path[PATH_MAX], int oflags, mode_t omode, int for_exec)
+int common_open(char path[PATH_MAX], int oflags, mode_t omode)
 {
 /* Common code from do_creat and do_open. */
   int b, r, exist = TRUE;
@@ -92,14 +93,15 @@ int common_open(char path[PATH_MAX], int oflags, mode_t omode, int for_exec)
   struct vmnt *vmp;
   struct dmap *dp;
   struct lookup resolve;
-  int fd, start = 0;
+  int start = 0;
 
   /* Remap the bottom two bits of oflags. */
   bits = (mode_t) mode_map[oflags & O_ACCMODE];
   if (!bits) return(EINVAL);
 
   /* See if file descriptor and filp slots are available. */
-  if ((r = get_fd(fp, start, bits, &fd, &filp)) != OK)
+  if ((r = get_fd(fp, start, bits, &(scratch(fp).file.fd_nr),
+     &filp)) != OK)
 	return(r);
 
   lookup_init(&resolve, path, PATH_NOFLAGS, &vmp, &vp);
@@ -130,20 +132,17 @@ int common_open(char path[PATH_MAX], int oflags, mode_t omode, int for_exec)
   }
 
   /* Claim the file descriptor and filp slot and fill them in. */
-  fp->fp_filp[fd] = filp;
+  fp->fp_filp[scratch(fp).file.fd_nr] = filp;
   filp->filp_count = 1;
   filp->filp_vno = vp;
   filp->filp_flags = oflags;
   if (oflags & O_CLOEXEC)
-	FD_SET(fd, &fp->fp_cloexec_set);
+	FD_SET(scratch(fp).file.fd_nr, &fp->fp_cloexec_set);
 
   /* Only do the normal open code if we didn't just create the file. */
   if (exist) {
-	/* Check permissions based on the given open flags, except when we are
-	 * opening an executable for the purpose of passing a file descriptor
-	 * to its interpreter for execution, in which case we check the X bit.
-	 */
-	if ((r = forbidden(fp, vp, for_exec ? X_BIT : bits)) == OK) {
+	/* Check protections. */
+	if ((r = forbidden(fp, vp, bits)) == OK) {
 		/* Opening reg. files, directories, and special files differ */
 		switch (vp->v_mode & S_IFMT) {
 		   case S_IFREG:
@@ -163,7 +162,7 @@ int common_open(char path[PATH_MAX], int oflags, mode_t omode, int for_exec)
 			/* Invoke the driver for special processing. */
 			dev = vp->v_sdev;
 			/* TTY needs to know about the O_NOCTTY flag. */
-			r = cdev_open(fd, dev, bits | (oflags & O_NOCTTY));
+			r = cdev_open(dev, bits | (oflags & O_NOCTTY));
 			vp = filp->filp_vno;	/* Might be updated by
 						 * cdev_open after cloning */
 			break;
@@ -233,7 +232,7 @@ int common_open(char path[PATH_MAX], int oflags, mode_t omode, int for_exec)
 				filp->filp_flags = oflags;
 			}
 			if (r == OK) {
-				r = pipe_open(fd, vp, bits, oflags);
+				r = pipe_open(vp, bits, oflags);
 			}
 			if (r != ENXIO) {
 				/* See if someone else is doing a rd or wt on
@@ -244,7 +243,7 @@ int common_open(char path[PATH_MAX], int oflags, mode_t omode, int for_exec)
 				filp->filp_count = 0; /* don't find self */
 				if ((filp2 = find_filp(vp, b)) != NULL) {
 				    /* Co-reader or writer found. Use it.*/
-				    fp->fp_filp[fd] = filp2;
+				    fp->fp_filp[scratch(fp).file.fd_nr] = filp2;
 				    filp2->filp_count++;
 				    filp2->filp_vno = vp;
 				    filp2->filp_flags = oflags;
@@ -263,14 +262,6 @@ int common_open(char path[PATH_MAX], int oflags, mode_t omode, int for_exec)
 				}
 			}
 			break;
-		   case S_IFSOCK:
-			r = EOPNOTSUPP;
-			break;
-		   default:
-			printf("VFS: attempt to open file <%llu,%llu> of "
-			    "type 0%o\n", vp->v_dev, vp->v_inode_nr,
-			    vp->v_mode & S_IFMT);
-			r = EIO;
 		}
 	}
   }
@@ -280,13 +271,13 @@ int common_open(char path[PATH_MAX], int oflags, mode_t omode, int for_exec)
   /* If error, release inode. */
   if (r != OK) {
 	if (r != SUSPEND) {
-		fp->fp_filp[fd] = NULL;
+		fp->fp_filp[scratch(fp).file.fd_nr] = NULL;
 		filp->filp_count = 0;
 		filp->filp_vno = NULL;
 		put_vnode(vp);
 	}
   } else {
-	r = fd;
+	r = scratch(fp).file.fd_nr;
   }
 
   return(r);
@@ -480,7 +471,7 @@ static struct vnode *new_node(struct lookup *resolve, int oflags, mode_t bits)
 /*===========================================================================*
  *				pipe_open				     *
  *===========================================================================*/
-static int pipe_open(int fd, struct vnode *vp, mode_t bits, int oflags)
+static int pipe_open(struct vnode *vp, mode_t bits, int oflags)
 {
 /*  This function is called from common_open. It checks if
  *  there is at least one reader/writer pair for the pipe, if not
@@ -497,7 +488,6 @@ static int pipe_open(int fd, struct vnode *vp, mode_t bits, int oflags)
 		if (bits & W_BIT) return(ENXIO);
 	} else {
 		/* Let's wait for the other side to show up */
-		fp->fp_popen.fd = fd;
 		suspend(FP_BLOCKED_ON_POPEN);
 		return(SUSPEND);
 	}
@@ -529,8 +519,7 @@ int do_mknod(void)
   mode_bits = job_m_in.m_lc_vfs_mknod.mode;
   dev = job_m_in.m_lc_vfs_mknod.device;
 
-  /* If the path names a symbolic link, mknod() shall fail with EEXIST. */
-  lookup_init(&resolve, fullpath, PATH_RET_SYMLINK, &vmp, &vp);
+  lookup_init(&resolve, fullpath, PATH_NOFLAGS, &vmp, &vp);
   resolve.l_vmnt_lock = VMNT_WRITE;
   resolve.l_vnode_lock = VNODE_WRITE;
 
@@ -655,7 +644,7 @@ int actual_lseek(struct fproc *rfp, int seekfd, int seekwhence, off_t offset,
 int do_lseek(void)
 {
   /* Perform the lseek(2) system call. */
-  off_t newpos = 0;
+  off_t newpos;
   int r;
 
   if ((r = actual_lseek(fp, job_m_in.m_lc_vfs_lseek.fd,
@@ -682,8 +671,9 @@ int do_close(void)
 /*===========================================================================*
  *				close_fd				     *
  *===========================================================================*/
-int
-close_fd(struct fproc *rfp, int fd_nr)
+int close_fd(rfp, fd_nr)
+struct fproc *rfp;
+int fd_nr;
 {
 /* Perform the close(fd) system call. */
   register struct filp *rfilp;

@@ -18,9 +18,9 @@ struct data_store {
 	char	key[DS_MAX_KEYLEN];	/* key to lookup information */
 	char	owner[DS_MAX_KEYLEN];
 
-	union dsi_u {
+	union {
 		unsigned u32;
-		struct dsi_mem {
+		struct {
 			void *data;
 			size_t length;
 			size_t reallen;

@@ -2,6 +2,6 @@
 
 PROG=	dhcpd
 SRCS=	dhcpd.c tags.c devices.c ether.c
-MAN=	dhcpd.8 dhcp.conf.5
+MAN=
 
 .include <bsd.prog.mk>

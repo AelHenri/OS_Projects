@@ -29,7 +29,6 @@
 #include <net/gen/udp_hdr.h>
 #include <net/gen/udp_io.h>
 #include <net/gen/dhcp.h>
-#include <arpa/inet.h>
 #include "arp.h"
 #define EXTERN
 #include "dhcpd.h"
@@ -360,12 +359,11 @@ static void printdata(void)
 		strcpy(delta, "infinite");
 	    } else
 	    if (expire < now) {
-		sprintf(delta, "-%llu", now - expire);
+		sprintf(delta, "-%lu", now - expire);
 	    } else {
-		sprintf(delta, "+%llu", expire - now);
+		sprintf(delta, "+%lu", expire - now);
 	    }
-	    printf("\t%-15s %8s  ", inet_ntoa(*(struct in_addr *)&entry.ip),
-	        delta);
+	    printf("\t%-15s %8s  ", inet_ntoa(entry.ip), delta);
 	    for (i= 0; i < entry.len; i++) {
 		printf("%02X", entry.clid[i]);
 	    }
@@ -484,7 +482,7 @@ static size_t servdhcp(network_t *np, buf_t *bp, size_t dlen)
 		if (dyn) {
 		    /* A dynamic address must have a lease. */
 		    fprintf(stderr, "%s: No lease set for address %s\n",
-			program, inet_ntoa(*(struct in_addr *)&cip));
+			program, inet_ntoa(cip));
 		    exit(1);
 		}
 		lease= nil;
@@ -530,8 +528,7 @@ static size_t servdhcp(network_t *np, buf_t *bp, size_t dlen)
 		    for (i= 0; i < cilen; i++) {
 			fprintf(stderr, "%02X", client[i]);
 		    }
-		    fprintf(stderr, " declines %s",
-		        inet_ntoa(*(struct in_addr *)&cip));
+		    fprintf(stderr, " declines %s", inet_ntoa(cip));
 		    if (gettag(bp->dhcp, DHCP_TAG_MESSAGE, &pdata, &len)) {
 			fprintf(stderr, " saying: \"%.*s\"", (int)len, pdata);
 		    }
@@ -679,7 +676,6 @@ int main(int argc, char **argv)
     static struct timeval eventtv;
 
 main:
-    n_nets = 0;
     r = -1;
     bp = nil;
     program= argv[0];
@@ -956,7 +952,7 @@ main:
 		/* Some weird sites use a hostname, not a client ID. */
 		if (np->hostname != nil) {
 		    settag(bp->dhcp, DHCP_TAG_HOSTNAME,
-				(void *)np->hostname, strlen(np->hostname));
+					np->hostname, strlen(np->hostname));
 		}
 
 		bp->udpio->uih_src_addr= np->ip;
@@ -986,7 +982,7 @@ main:
 			    printf("%s: Sent DHCP %s to %s\n",
 				np->fdp->device,
 				dhcptypename(type),
-				inet_ntoa(*(struct in_addr *)&np->server));
+				inet_ntoa(np->server));
 			    if (debug >= 2) printdhcp(bp->dhcp);
 			}
 		    }
@@ -1076,12 +1072,9 @@ main:
 
 		if (debug >= 1) {
 		    printf("%s: Got a DHCP %s from %s",
-			np->fdp->device, dhcptypename(type),
-			inet_ntoa(*(struct in_addr *)&server));
-		    if (relay != server)
-		        printf(" through %s\n",
-			    inet_ntoa(*(struct in_addr *)&relay));
-		    else printf("\n");
+			np->fdp->device, dhcptypename(type), inet_ntoa(server));
+		    printf(relay != server ? " through %s\n" : "\n",
+			inet_ntoa(relay));
 		    if (debug >= 2) printdhcp(bp->dhcp);
 		}
 
@@ -1142,8 +1135,7 @@ main:
 		    make_arp(bp, np);
 		    if (sendpacket(np, bp->eth, sizeof(arp46_t))) {
 			if (debug >= 2) {
-			    printf("Sent ARP for %s\n",
-			        inet_ntoa(*(struct in_addr *)&np->ip));
+			    printf("Sent ARP for %s\n", inet_ntoa(np->ip));
 			}
 		    }
 		    np->flags &= ~NF_CONFLICT;
@@ -1229,10 +1221,9 @@ main:
 		    np->delta= DELTA_FIRST;
 
 		    fprintf(stderr, "%s: Got a NAK from %s",
-			program, inet_ntoa(*(struct in_addr *)&server));
+			program, inet_ntoa(server));
 		    if (relay != server) {
-			fprintf(stderr, " through %s",
-			  inet_ntoa(*(struct in_addr *)&relay));
+			fprintf(stderr, " through %s", inet_ntoa(relay));
 		    }
 		    if (gettag(bp->dhcp, DHCP_TAG_MESSAGE, &pdata, &len)) {
 			fprintf(stderr, " saying: \"%.*s\"", (int)len, pdata);
@@ -1251,9 +1242,9 @@ main:
 		fprintf(stderr, "%s: %s: %s offered by ",
 			program,
 			np->fdp->device,
-			inet_ntoa(*(struct in_addr *)&np->ip));
+			inet_ntoa(np->ip));
 		fprintf(stderr, "%s is already in use by %s\n",
-			inet_ntoa(*(struct in_addr *)&np->server),
+			inet_ntoa(np->server),
 			ether_ntoa(&np->conflict));
 	    }
 	    put_buf(&bp);
@@ -1278,8 +1269,7 @@ main:
 		    if (sendpacket(np, bp->ip, sizeof(ip_hdr_t) + 16)) {
 			if (debug >= 2) {
 			    printf("%s: Sent advert for %s to self\n",
-				np->fdp->device,
-				inet_ntoa(*(struct in_addr *)&np->gateway));
+				np->fdp->device, inet_ntoa(np->gateway));
 			}
 		    }
 		    np->solicit= now + DELTA_ADV/2;
@@ -1329,8 +1319,7 @@ main:
 	    if ((router= icmp_is_advert(bp)) != 0) {
 		if (debug >= 2) {
 		    printf("%s: Router advert received from %s\n",
-			np->fdp->device,
-			inet_ntoa(*(struct in_addr *)&router));
+			np->fdp->device, inet_ntoa(router));
 		}
 		np->solicit= NEVER;
 		np->sol_ct= -1;
@@ -1379,10 +1368,8 @@ main:
 
 	    if (debug >= 1) {
 		printf("%s: Got DHCP packet from %s to ",
-		    np->fdp->device,
-		    inet_ntoa(*(struct in_addr *)&bp->udpio->uih_src_addr));
-		printf("%s\n",
-		    inet_ntoa(*(struct in_addr *)&bp->udpio->uih_dst_addr));
+		    np->fdp->device, inet_ntoa(bp->udpio->uih_src_addr));
+		printf("%s\n", inet_ntoa(bp->udpio->uih_dst_addr));
 		if (debug >= 2) printdhcp(bp->dhcp);
 	    }
 
@@ -1393,8 +1380,7 @@ main:
 		    if (debug >= 1) {
 			printf("%s: Sent DHCP packet to %s\n",
 			    np->fdp->device,
-			    inet_ntoa(*(struct in_addr *)
-			    &bp->udpio->uih_dst_addr));
+			    inet_ntoa(bp->udpio->uih_dst_addr));
 			if (debug >= 2) printdhcp(bp->dhcp);
 		    }
 		}

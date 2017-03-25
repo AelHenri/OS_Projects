@@ -8,17 +8,17 @@ SRCS=	buf.c clock.c inet.c inet_config.c \
 	ipr.c rand256.c tcp.c tcp_lib.c \
 	tcp_recv.c tcp_send.c ip_eth.c \
 	ip_ps.c psip.c \
-	queryparam.c version.c rtinfo.c
-MAN=	inet.8
-
-FILES=${PROG}.conf
-FILESNAME=${PROG}
-FILESDIR= /etc/system.conf.d
+	queryparam.c version.c
 
 .PATH:	${.CURDIR}/generic
 
+WARNS=
+
 DPADD+=	${LIBCHARDRIVER} ${LIBSYS}
 LDADD+=	-lchardriver -lsys
+
+DPADD+= ${LIBC}
+LDADD+= -lc
 
 CPPFLAGS+=  -I${.CURDIR} -D'ARGS(a)=a'
 

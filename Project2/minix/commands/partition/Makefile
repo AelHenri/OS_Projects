@@ -1,5 +1,5 @@
 PROG=	partition
-MAN=	partition.8
+MAN=
 
 # We need this to find our partition.h while compiling natively
 # on non-Minix.

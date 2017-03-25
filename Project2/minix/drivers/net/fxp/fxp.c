@@ -1,7 +1,7 @@
 /*
  * fxp.c
  *
- * This file contains an ethernet device driver for Intel 82557, 82558,
+ * This file contains an ethernet device driver for Intel 82557, 82558, 
  * 82559, 82550, and 82562 fast ethernet controllers.
  *
  * Created:	Nov 2004 by Philip Homburg <philip@f-mnx.phicoh.com>
@@ -10,10 +10,21 @@
 #include <minix/drivers.h>
 #include <minix/netdriver.h>
 
+#include <stdlib.h>
+#include <net/hton.h>
+#include <net/gen/ether.h>
+#include <net/gen/eth_io.h>
 #include <machine/pci.h>
 #include <minix/ds.h>
-#include <assert.h>
+#include <minix/endpoint.h>
 
+#include <minix/timers.h>
+
+#define debug			0
+#define RAND_UPDATE		/**/
+#define printW()		((void)0)
+
+#include "assert.h"
 #include "fxp.h"
 #include "mii.h"
 
@@ -23,10 +34,16 @@
 /* Number of transmit buffers */
 #define N_TX_BUF	4
 
+/* I/O vectors are handled IOVEC_NR entries at a time. */
+#define IOVEC_NR	16
+
 /* Configuration */
 #define FXP_ENVVAR	"FXPETH"
 
 typedef int irq_hook_t;
+
+/* ignore interrupt for the moment */
+#define interrupt(x)	do { } while(0)
 
 static union tmpbuf
 {
@@ -38,8 +55,12 @@ static union tmpbuf
 typedef struct fxp
 {
 	port_t fxp_base_port;
+	int fxp_mode;
 	int fxp_got_int;
 	int fxp_send_int;
+	int fxp_flags;
+	int fxp_client;
+	int fxp_features;		/* Needed? */
 	int fxp_irq;
 	int fxp_type;			/* What kind of hardware */
 	int fxp_ms_regs;		/* Master/slave registers */
@@ -48,6 +69,7 @@ typedef struct fxp
 	int fxp_need_reset;
 
 	/* Rx */
+	vir_bytes fxp_read_s;
 	int fxp_rx_nbuf;
 	int fxp_rx_bufsize;
 	struct rfd *fxp_rx_buf;
@@ -71,13 +93,42 @@ typedef struct fxp
 	/* Link status */
 	int fxp_report_link;
 	int fxp_link_up;
+	int fxp_mii_busy;
 	u16_t fxp_mii_scr;
 
+	/* PCI related */
+	int fxp_seen;			/* TRUE iff device available */
+
+	/* 'large' items */
 	irq_hook_t fxp_hook;
+	ether_addr_t fxp_address;
+	message fxp_rx_mess;
+	message fxp_tx_mess;
 	struct sc fxp_stat;
 	u8_t fxp_conf_bytes[CC_BYTES_NR];
 	char fxp_name[sizeof("fxp#n")];
-} fxp_t;
+	iovec_t fxp_iovec[IOVEC_NR];
+	iovec_s_t fxp_iovec_s[IOVEC_NR];
+}
+fxp_t;
+
+/* fxp_mode */
+#define FM_DISABLED	0x0
+#define FM_ENABLED	0x1
+
+/* fxp_flags */
+#define FF_EMPTY	0x000
+#define FF_PACK_SENT	0x001
+#define FF_PACK_RECV	0x002
+#define FF_SEND_AVAIL	0x004
+#define FF_READING	0x010
+#define FF_PROMISC	0x040
+#define FF_MULTI	0x080
+#define FF_BROAD	0x100
+#define FF_ENABLED	0x200
+
+/* fxp_features */
+#define FFE_NONE	0x0
 
 /* fxp_type */
 #define FT_UNKNOWN	0x0
@@ -90,35 +141,40 @@ static int fxp_instance;
 
 static fxp_t *fxp_state;
 
+static minix_timer_t fxp_watchdog;
+
+static u32_t system_hz;
+
 #define fxp_inb(port, offset)	(do_inb((port) + (offset)))
 #define fxp_inl(port, offset)	(do_inl((port) + (offset)))
 #define fxp_outb(port, offset, value)	(do_outb((port) + (offset), (value)))
 #define fxp_outl(port, offset, value)	(do_outl((port) + (offset), (value)))
 
-static int fxp_init(unsigned int instance, ether_addr_t *addr);
-static void fxp_intr(unsigned int __unused mask);
-static void fxp_stop(void);
+static void fxp_init(message *mp);
+static void fxp_pci_conf(void);
 static int fxp_probe(fxp_t *fp, int skip);
 static void fxp_conf_hw(fxp_t *fp);
-static void fxp_init_hw(fxp_t *fp, ether_addr_t *addr);
+static void fxp_init_hw(fxp_t *fp);
 static void fxp_init_buf(fxp_t *fp);
 static void fxp_reset_hw(fxp_t *fp);
-static void fxp_confaddr(fxp_t *fp, ether_addr_t *addr);
-static void fxp_mode(unsigned int mode);
-static int fxp_send(struct netdriver_data *data, size_t size);
-static ssize_t fxp_recv(struct netdriver_data *data, size_t max);
+static void fxp_confaddr(fxp_t *fp);
+static void fxp_rec_mode(fxp_t *fp);
+static void fxp_writev_s(const message *mp, int from_int);
+static void fxp_readv_s(message *mp, int from_int);
 static void fxp_do_conf(fxp_t *fp);
 static void fxp_cu_ptr_cmd(fxp_t *fp, int cmd, phys_bytes bus_addr, int
 	check_idle);
 static void fxp_ru_ptr_cmd(fxp_t *fp, int cmd, phys_bytes bus_addr, int
 	check_idle);
 static void fxp_restart_ru(fxp_t *fp);
-static void fxp_stat(eth_stat_t *stat);
+static void fxp_getstat_s(message *mp);
 static void fxp_handler(fxp_t *fp);
 static void fxp_check_ints(fxp_t *fp);
-static void fxp_alarm(clock_t stamp);
+static void fxp_watchdog_f(minix_timer_t *tp);
 static int fxp_link_changed(fxp_t *fp);
 static void fxp_report_link(fxp_t *fp);
+static void reply(fxp_t *fp);
+static void mess_reply(message *req, message *reply);
 static u16_t eeprom_read(fxp_t *fp, int reg);
 static void eeprom_addrsize(fxp_t *fp);
 static u16_t mii_read(fxp_t *fp, int reg);
@@ -126,110 +182,240 @@ static u8_t do_inb(port_t port);
 static u32_t do_inl(port_t port);
 static void do_outb(port_t port, u8_t v);
 static void do_outl(port_t port, u32_t v);
-static void tell_iommu(vir_bytes start, size_t size, int pci_bus, int
+static void tell_dev(vir_bytes start, size_t size, int pci_bus, int
 	pci_dev, int pci_func);
 
-static const struct netdriver fxp_table = {
-	.ndr_init	= fxp_init,
-	.ndr_stop	= fxp_stop,
-	.ndr_mode	= fxp_mode,
-	.ndr_recv	= fxp_recv,
-	.ndr_send	= fxp_send,
-	.ndr_stat	= fxp_stat,
-	.ndr_intr	= fxp_intr,
-	.ndr_alarm	= fxp_alarm,
-};
+static void handle_hw_intr(void)
+{
+	int r;
+	fxp_t *fp;
+
+	fp= fxp_state;
+
+	if (fp->fxp_mode != FM_ENABLED)
+		return;
+	fxp_handler(fp);
+
+	r= sys_irqenable(&fp->fxp_hook);
+	if (r != OK) {
+		panic("unable enable interrupts: %d", r);
+	}
+
+	if (!fp->fxp_got_int)
+		return;
+	fp->fxp_got_int= 0;
+	assert(fp->fxp_flags & FF_ENABLED);
+	fxp_check_ints(fp);
+}
+
+/* SEF functions and variables. */
+static void sef_local_startup(void);
+static int sef_cb_init_fresh(int type, sef_init_info_t *info);
+static void sef_cb_signal_handler(int signo);
 
 /*===========================================================================*
  *				main					     *
  *===========================================================================*/
 int main(int argc, char *argv[])
 {
-	env_setargs(argc, argv);
-
-	netdriver_task(&fxp_table);
-
-	return 0;
-}
-
-/*===========================================================================*
- *				fxp_intr				     *
- *===========================================================================*/
-static void fxp_intr(unsigned int __unused mask)
-{
+	message m;
+	int ipc_status;
 	int r;
-	fxp_t *fp;
 
-	fp= fxp_state;
+	/* SEF local startup. */
+	env_setargs(argc, argv);
+	sef_local_startup();
 
-	fxp_handler(fp);
+	while (TRUE)
+	{
+		if ((r= netdriver_receive(ANY, &m, &ipc_status)) != OK)
+			panic("netdriver_receive failed: %d", r);
 
-	if ((r = sys_irqenable(&fp->fxp_hook)) != OK)
-		panic("unable to enable interrupts: %d", r);
+		if (is_ipc_notify(ipc_status)) {
+			switch (_ENDPOINT_P(m.m_source)) {
+				case HARDWARE:
+					handle_hw_intr();
+					break;
+				case CLOCK:
+					expire_timers(m.m_notify.timestamp);
+					break;
+				default:
+					panic(" illegal notify from: %d", m.m_source);
+			}
 
-	if (!fp->fxp_got_int)
-		return;
-	fp->fxp_got_int= 0;
-	fxp_check_ints(fp);
+			/* get new message */
+			continue;
+		}
+
+		switch (m.m_type)
+		{
+		case DL_WRITEV_S: fxp_writev_s(&m, FALSE);	break;
+		case DL_READV_S: fxp_readv_s(&m, FALSE);	break;
+		case DL_CONF:	fxp_init(&m);			break;
+		case DL_GETSTAT_S: fxp_getstat_s(&m);		break;
+		default:
+			panic(" illegal message: %d", m.m_type);
+		}
+	}
 }
 
 /*===========================================================================*
- *				fxp_stop				     *
+ *			       sef_local_startup			     *
  *===========================================================================*/
-static void fxp_stop(void)
+static void sef_local_startup()
+{
+  /* Register init callbacks. */
+  sef_setcb_init_fresh(sef_cb_init_fresh);
+  sef_setcb_init_lu(sef_cb_init_fresh);
+  sef_setcb_init_restart(sef_cb_init_fresh);
+
+  /* Register live update callbacks. */
+  sef_setcb_lu_prepare(sef_cb_lu_prepare_always_ready);
+  sef_setcb_lu_state_isvalid(sef_cb_lu_state_isvalid_workfree);
+
+  /* Register signal callbacks. */
+  sef_setcb_signal_handler(sef_cb_signal_handler);
+
+  /* Let SEF perform startup. */
+  sef_startup();
+}
+
+/*===========================================================================*
+ *		            sef_cb_init_fresh                                *
+ *===========================================================================*/
+static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *UNUSED(info))
+{
+/* Initialize the fxp driver. */
+	long v;
+	int r;
+	vir_bytes ft;
+
+	system_hz = sys_hz();
+
+	v = 0;
+	(void) env_parse("instance", "d", 0, &v, 0, 255);
+	fxp_instance = (int) v;
+
+	ft = sizeof(*fxp_state);
+
+	if(!(fxp_state = alloc_contig(ft, 0, NULL)))
+		panic("couldn't allocate table: %d", ENOMEM);
+
+	memset(fxp_state, 0, ft);
+
+	if((r=tsc_calibrate()) != OK)
+		panic("tsc_calibrate failed: %d", r);
+
+	/* Announce we are up! */
+	netdriver_announce();
+
+	return(OK);
+}
+
+/*===========================================================================*
+ *		           sef_cb_signal_handler                             *
+ *===========================================================================*/
+static void sef_cb_signal_handler(int signo)
 {
 	port_t port;
 	fxp_t *fp;
 
+	/* Only check for termination signal, ignore anything else. */
+	if (signo != SIGTERM) return;
+
 	fp= fxp_state;
 
-	port= fp->fxp_base_port;
+	if (fp->fxp_mode == FM_ENABLED && (fp->fxp_flags & FF_ENABLED)) {
+		port= fp->fxp_base_port;
 
-	/* Stop device */
-#if VERBOSE
-	printf("%s: stopping device\n", fp->fxp_name);
-#endif
+		/* Reset device */
+		if (debug)
+			printf("%s: resetting device\n", fp->fxp_name);
+		fxp_outl(port, CSR_PORT, CP_CMD_SOFT_RESET);
+	}
 
-	fxp_outl(port, CSR_PORT, CP_CMD_SOFT_RESET);
+	exit(0);
 }
 
 /*===========================================================================*
  *				fxp_init				     *
  *===========================================================================*/
-static int fxp_init(unsigned int instance, ether_addr_t *addr)
+static void fxp_init(mp)
+message *mp;
+{
+	static int first_time= 1;
+
+	fxp_t *fp;
+	message reply_mess;
+
+	if (first_time)
+	{
+		first_time= 0;
+		fxp_pci_conf(); /* Configure PCI devices. */
+
+		init_timer(&fxp_watchdog);
+		set_timer(&fxp_watchdog, system_hz, fxp_watchdog_f, 0);
+	}
+
+	fp= fxp_state;
+	if (fp->fxp_mode == FM_DISABLED)
+	{
+		/* This is the default, try to (re)locate the device. */
+		fxp_conf_hw(fp);
+		if (fp->fxp_mode == FM_DISABLED)
+		{
+			/* Probe failed, or the device is configured off. */
+			reply_mess.m_type= DL_CONF_REPLY;
+			reply_mess.m_netdrv_net_dl_conf.stat= ENXIO;
+			mess_reply(mp, &reply_mess);
+			return;
+		}
+		if (fp->fxp_mode == FM_ENABLED)
+			fxp_init_hw(fp);
+		fxp_report_link(fp);
+	}
+
+	assert(fp->fxp_mode == FM_ENABLED);
+	assert(fp->fxp_flags & FF_ENABLED);
+
+	fp->fxp_flags &= ~(FF_PROMISC | FF_MULTI | FF_BROAD);
+
+	if (mp->m_net_netdrv_dl_conf.mode & DL_PROMISC_REQ)
+		fp->fxp_flags |= FF_PROMISC;
+	if (mp->m_net_netdrv_dl_conf.mode & DL_MULTI_REQ)
+		fp->fxp_flags |= FF_MULTI;
+	if (mp->m_net_netdrv_dl_conf.mode & DL_BROAD_REQ)
+		fp->fxp_flags |= FF_BROAD;
+
+	fxp_rec_mode(fp);
+
+	reply_mess.m_type = DL_CONF_REPLY;
+	reply_mess.m_netdrv_net_dl_conf.stat = OK;
+	memcpy(reply_mess.m_netdrv_net_dl_conf.hw_addr,
+		fp->fxp_address.ea_addr,
+		sizeof(reply_mess.m_netdrv_net_dl_conf.hw_addr));
+
+	mess_reply(mp, &reply_mess);
+}
+
+/*===========================================================================*
+ *				fxp_pci_conf				     *
+ *===========================================================================*/
+static void fxp_pci_conf()
 {
 	fxp_t *fp;
-	int r;
-
-	fxp_instance = instance;
-
-	if (!(fxp_state = alloc_contig(sizeof(*fxp_state), 0, NULL)))
-		panic("couldn't allocate table");
 
 	fp= fxp_state;
 
-	memset(fp, 0, sizeof(*fp));
-
 	strlcpy(fp->fxp_name, "fxp#0", sizeof(fp->fxp_name));
 	fp->fxp_name[4] += fxp_instance;
+	fp->fxp_seen= FALSE;
+	fp->fxp_features= FFE_NONE;
 
-	if ((r = tsc_calibrate()) != OK)
-		panic("tsc_calibrate failed: %d", r);
+	pci_init();
 
-	/* Configure PCI device. */
-	if (!fxp_probe(fp, fxp_instance))
-		return ENXIO;
-
-	fxp_conf_hw(fp);
-
-	fxp_init_hw(fp, addr);
-	fxp_report_link(fp);
-
-	/* Set watchdog timer. */
-	if ((r = sys_setalarm(sys_hz(), 0)) != OK)
-		panic("unable to set watchdog alarm");
-
-	return OK;
+	if (fxp_probe(fp, fxp_instance))
+		fp->fxp_seen= TRUE;
 }
 
 /*===========================================================================*
@@ -238,15 +424,13 @@ static int fxp_init(unsigned int instance, ether_addr_t *addr)
 static int fxp_probe(fxp_t *fp, int skip)
 {
 	int r, devind;
-	u16_t vid, did, cr;
+	u16_t vid, did;
 	u32_t bar;
 	u8_t ilr, rev;
 	char *str;
 #if VERBOSE
 	char *dname;
 #endif
-
-	pci_init();
 
 	r= pci_first_dev(&devind, &vid, &did);
 	if (r == 0)
@@ -268,11 +452,6 @@ static int fxp_probe(fxp_t *fp, int skip)
 #endif
 	pci_reserve(devind);
 
-	/* Enable bus mastering if necessary. */
-	cr = pci_attr_r16(devind, PCI_CR);
-	if (!(cr & PCI_CR_MAST_EN))
-		pci_attr_w16(devind, PCI_CR, cr | PCI_CR_MAST_EN);
-
 	bar= pci_attr_r32(devind, PCI_BAR_2) & 0xffffffe0;
 	if (bar < 0x400) {
 		panic("fxp_probe: base address is not properly configured");
@@ -281,10 +460,11 @@ static int fxp_probe(fxp_t *fp, int skip)
 
 	ilr= pci_attr_r8(devind, PCI_ILR);
 	fp->fxp_irq= ilr;
-#if VERBOSE
-	printf("%s: using I/O address 0x%lx, IRQ %d\n",
-		fp->fxp_name, (unsigned long)bar, ilr);
-#endif
+	if (debug)
+	{
+		printf("%s: using I/O address 0x%lx, IRQ %d\n",
+			fp->fxp_name, (unsigned long)bar, ilr);
+	}
 
 	rev= pci_attr_r8(devind, PCI_REV);
 	str= NULL;
@@ -361,12 +541,23 @@ static void fxp_conf_hw(fxp_t *fp)
 	int i;
 #endif
 
+	fp->fxp_mode= FM_DISABLED;	/* Superfluous */
+
+	if (!fp->fxp_seen)
+		return;
+
+	/* PCI device is present */
+	fp->fxp_mode= FM_ENABLED;
+
+	fp->fxp_flags= FF_EMPTY;
 	fp->fxp_got_int= 0;
 	fp->fxp_send_int= 0;
 	fp->fxp_ee_addrlen= 0;	/* Unknown */
 	fp->fxp_need_reset= 0;
 	fp->fxp_report_link= 0;
 	fp->fxp_link_up= -1;	/* Unknown */
+	fp->fxp_mii_busy= 0;
+	fp->fxp_read_s= 0;
 	fp->fxp_rx_need_restart= 0;
 	fp->fxp_need_conf= 0;
 	fp->fxp_tx_head= 0;
@@ -445,9 +636,10 @@ static void fxp_conf_hw(fxp_t *fp)
 /*===========================================================================*
  *				fxp_init_hw				     *
  *===========================================================================*/
-static void fxp_init_hw(fxp_t *fp, ether_addr_t *addr)
+static void fxp_init_hw(fp)
+fxp_t *fp;
 {
-	int r, isr;
+	int i, r, isr;
 	port_t port;
 	phys_bytes bus_addr;
 
@@ -455,7 +647,10 @@ static void fxp_init_hw(fxp_t *fp, ether_addr_t *addr)
 
 	fxp_init_buf(fp);
 
-	/* Set the interrupt handler and policy. Do not automatically
+	fp->fxp_flags = FF_EMPTY;
+	fp->fxp_flags |= FF_ENABLED;
+
+	/* Set the interrupt handler and policy. Do not automatically 
 	 * reenable interrupts. Return the IRQ line number on interrupts.
  	 */
  	fp->fxp_hook = fp->fxp_irq;
@@ -490,7 +685,16 @@ static void fxp_init_hw(fxp_t *fp, ether_addr_t *addr)
 	fxp_ru_ptr_cmd(fp, SC_RU_START, fp->fxp_rx_busaddr,
 		TRUE /* check idle */);
 
-	fxp_confaddr(fp, addr);
+	fxp_confaddr(fp);
+	if (debug)
+	{
+		printf("%s: Ethernet address ", fp->fxp_name);
+		for (i= 0; i < 6; i++)
+		{
+			printf("%x%c", fp->fxp_address.ea_addr[i],
+				i < 5 ? ':' : '\n');
+		}
+	}
 }
 
 /*===========================================================================*
@@ -520,13 +724,13 @@ fxp_t *fp;
 		tot_bufsize += 4096 - (tot_bufsize % 4096);
 	alloc_bufsize= tot_bufsize;
 	alloc_buf= alloc_contig(alloc_bufsize, AC_ALIGN4K, &ph);
-	if (alloc_buf == NULL)
-		panic("fxp_init_buf: unable to alloc_contig size: %d",
-			alloc_bufsize);
+	if (alloc_buf == NULL) {
+		panic("fxp_init_buf: unable to alloc_contig size: %d", 			alloc_bufsize);
+	}
 
 	buf= (phys_bytes)alloc_buf;
 
-	tell_iommu((vir_bytes)buf, tot_bufsize, 0, 0, 0);
+	tell_dev((vir_bytes)buf, tot_bufsize, 0, 0, 0);
 
 	tmpbufp= (union tmpbuf *)buf;
 
@@ -593,7 +797,7 @@ fxp_t *fp;
 		txp->tx_tthresh= fp->fxp_tx_threshold;
 		txp->tx_ntbd= 0;
 	}
-	fp->fxp_tx_idle= TRUE;
+	fp->fxp_tx_idle= 1;
 }
 
 /*===========================================================================*
@@ -624,7 +828,7 @@ fxp_t *fp;
 /*===========================================================================*
  *				fxp_confaddr				     *
  *===========================================================================*/
-static void fxp_confaddr(fxp_t *fp, ether_addr_t *addr)
+static void fxp_confaddr(fxp_t *fp)
 {
 	static char eakey[]= FXP_ENVVAR "#_EA";
 	static char eafmt[]= "x:x:x:x:x:x";
@@ -639,7 +843,7 @@ static void fxp_confaddr(fxp_t *fp, ether_addr_t *addr)
 	{
 		if (env_parse(eakey, eafmt, i, &v, 0x00L, 0xFFL) != EP_SET)
 			break;
-		addr->ea_addr[i]= v;
+		fp->fxp_address.ea_addr[i]= v;
 	}
 
 	if (i != 0 && i != 6) env_panic(eakey);	/* It's all or nothing */
@@ -650,8 +854,8 @@ static void fxp_confaddr(fxp_t *fp, ether_addr_t *addr)
 		for (i= 0; i<3; i++)
 		{
 			v= eeprom_read(fp, i);
-			addr->ea_addr[i*2]= (v & 0xff);
-			addr->ea_addr[i*2+1]= ((v >> 8) & 0xff);
+			fp->fxp_address.ea_addr[i*2]= (v & 0xff);
+			fp->fxp_address.ea_addr[i*2+1]= ((v >> 8) & 0xff);
 		}
 	}
 
@@ -659,7 +863,7 @@ static void fxp_confaddr(fxp_t *fp, ether_addr_t *addr)
 	tmpbufp->ias.ias_status= 0;
 	tmpbufp->ias.ias_command= CBL_C_EL | CBL_AIS;
 	tmpbufp->ias.ias_linkaddr= 0;
-	memcpy(tmpbufp->ias.ias_ethaddr, addr->ea_addr,
+	memcpy(tmpbufp->ias.ias_ethaddr, fp->fxp_address.ea_addr,
 		sizeof(tmpbufp->ias.ias_ethaddr));
 	r= sys_umap(SELF, VM_D, (vir_bytes)&tmpbufp->ias,
 		(phys_bytes)sizeof(tmpbufp->ias), &bus_addr);
@@ -679,30 +883,30 @@ static void fxp_confaddr(fxp_t *fp, ether_addr_t *addr)
 #if VERBOSE
 	printf("%s: hardware ethernet address: ", fp->fxp_name);
 	for (i= 0; i<6; i++)
-		printf("%02x%s", addr->ea_addr[i], i < 5 ? ":" : "");
+	{
+		printf("%02x%s", fp->fxp_address.ea_addr[i], 
+			i < 5 ? ":" : "");
+	}
 	printf("\n");
 #endif
 }
 
 /*===========================================================================*
- *				fxp_mode				     *
+ *				fxp_rec_mode				     *
  *===========================================================================*/
-static void fxp_mode(unsigned int mode)
+static void fxp_rec_mode(fp)
+fxp_t *fp;
 {
-	fxp_t *fp;
-
-	fp = fxp_state;
-
 	fp->fxp_conf_bytes[0]= CC_BYTES_NR;	/* Just to be sure */
 	fp->fxp_conf_bytes[15] &= ~(CCB15_BD|CCB15_PM);
 	fp->fxp_conf_bytes[21] &= ~CCB21_MA;
 
-	if (mode & NDEV_PROMISC)
+	if (fp->fxp_flags & FF_PROMISC)
 		fp->fxp_conf_bytes[15] |= CCB15_PM;
-	if (mode & NDEV_MULTI)
+	if (fp->fxp_flags & FF_MULTI)
 		fp->fxp_conf_bytes[21] |= CCB21_MA;
 
-	if (!(mode & (NDEV_BROAD|NDEV_MULTI|NDEV_PROMISC)))
+	if (!(fp->fxp_flags & (FF_BROAD|FF_MULTI|FF_PROMISC)))
 		fp->fxp_conf_bytes[15] |= CCB15_BD;
 
 	/* Queue request if not idle */
@@ -718,17 +922,34 @@ static void fxp_mode(unsigned int mode)
 }
 
 /*===========================================================================*
- *				fxp_send				     *
+ *				fxp_writev_s				     *
  *===========================================================================*/
-static int fxp_send(struct netdriver_data *data, size_t size)
+static void fxp_writev_s(const message *mp, int from_int)
 {
-	int prev_head;
+	endpoint_t iov_endpt;
+	cp_grant_id_t iov_grant;
+	vir_bytes iov_offset;
+	int i, j, n, o, r, s, count, size, prev_head;
 	int fxp_tx_nbuf, fxp_tx_head;
 	u16_t tx_command;
 	fxp_t *fp;
+	iovec_s_t *iovp;
 	struct tx *txp, *prev_txp;
 
 	fp= fxp_state;
+
+	count = mp->m_net_netdrv_dl_writev_s.count;
+	fp->fxp_client= mp->m_source;
+
+	assert(fp->fxp_mode == FM_ENABLED);
+	assert(fp->fxp_flags & FF_ENABLED);
+
+	if (from_int)
+	{
+		assert(fp->fxp_flags & FF_SEND_AVAIL);
+		fp->fxp_flags &= ~FF_SEND_AVAIL;
+		fp->fxp_tx_alive= TRUE;
+	}
 
 	if (fp->fxp_tx_idle)
 	{
@@ -737,7 +958,7 @@ static int fxp_send(struct netdriver_data *data, size_t size)
 		prev_txp= NULL;	/* lint */
 	}
 	else
-	{
+	{	
 		fxp_tx_nbuf= fp->fxp_tx_nbuf;
 		prev_head= fp->fxp_tx_head;
 		fxp_tx_head= prev_head+1;
@@ -748,15 +969,54 @@ static int fxp_send(struct netdriver_data *data, size_t size)
 		if (fxp_tx_head == fp->fxp_tx_tail)
 		{
 			/* Send queue is full */
-			return SUSPEND;
+			assert(!(fp->fxp_flags & FF_SEND_AVAIL));
+			fp->fxp_flags |= FF_SEND_AVAIL;
+			goto suspend;
 		}
 
 		prev_txp= &fp->fxp_tx_buf[prev_head];
 		txp= &fp->fxp_tx_buf[fxp_tx_head];
 	}
 
-	/* Copy in the packet data */
-	netdriver_copyin(data, 0, txp->tx_buf, size);
+	assert(!(fp->fxp_flags & FF_SEND_AVAIL));
+	assert(!(fp->fxp_flags & FF_PACK_SENT));
+
+	iov_endpt= mp->m_source;
+	iov_grant= mp->m_net_netdrv_dl_writev_s.grant;
+
+	size= 0;
+	o= 0;
+	iov_offset= 0;
+	for (i= 0; i<count; i += IOVEC_NR,
+		iov_offset += IOVEC_NR * sizeof(fp->fxp_iovec_s[0]))
+	{
+		n= IOVEC_NR;
+		if (i+n > count)
+			n= count-i;
+		r= sys_safecopyfrom(iov_endpt, iov_grant, iov_offset,
+			(vir_bytes)fp->fxp_iovec_s,
+			n * sizeof(fp->fxp_iovec_s[0]));
+		if (r != OK)
+			panic("fxp_writev: sys_safecopyfrom failed: %d", r);
+
+		for (j= 0, iovp= fp->fxp_iovec_s; j<n; j++, iovp++)
+		{
+			s= iovp->iov_size;
+			if (size + s > ETH_MAX_PACK_SIZE_TAGGED) {
+				panic("fxp_writev: invalid packet size: %d", size + s);
+			}
+
+			r= sys_safecopyfrom(iov_endpt, iovp->iov_grant,
+				0, (vir_bytes)(txp->tx_buf+o), s);
+			if (r != OK) {
+				panic("fxp_writev_s: sys_safecopyfrom failed: %d", r);
+			}
+			size += s;
+			o += s;
+		}
+	}
+	if (size < ETH_MIN_PACK_SIZE)
+		panic("fxp_writev: invalid packet size: %d", size);
 
 	txp->tx_status= 0;
 	txp->tx_command= TXC_EL | CBL_XMIT;
@@ -766,7 +1026,7 @@ static int fxp_send(struct netdriver_data *data, size_t size)
 	txp->tx_ntbd= 0;
 	if (fp->fxp_tx_idle)
 	{
-		fp->fxp_tx_idle= FALSE;
+		fp->fxp_tx_idle= 0;
 		fp->fxp_tx_head= fp->fxp_tx_tail= 0;
 
 		fxp_cu_ptr_cmd(fp, SC_CU_START, fp->fxp_tx_busaddr,
@@ -781,51 +1041,51 @@ static int fxp_send(struct netdriver_data *data, size_t size)
 		fp->fxp_tx_head= fxp_tx_head;
 	}
 
-	return OK;
-}
+	fp->fxp_flags |= FF_PACK_SENT;
 
-/*===========================================================================*
- *				fxp_check_restart			     *
- *===========================================================================*/
-static void fxp_check_restart(fxp_t *fp)
-{
-	port_t port;
-	u8_t scb_status;
-
-	if (!fp->fxp_rx_need_restart)
+	/* If the interrupt handler called, don't send a reply. The reply
+	 * will be sent after all interrupts are handled. 
+	 */
+	if (from_int)
 		return;
+	reply(fp);
+	return;
 
-	fp->fxp_rx_need_restart= 0;
+suspend:
+	if (from_int)
+		panic("fxp: should not be sending");
 
-	/* Check the status of the RU */
-	port= fp->fxp_base_port;
-	scb_status= fxp_inb(port, SCB_STATUS);
-	if ((scb_status & SS_RUS_MASK) != SS_RU_NORES)
-	{
-		/* Race condition? */
-		printf("fxp_check_restart: restart race: 0x%x\n", scb_status);
-		assert((scb_status & SS_RUS_MASK) == SS_RU_READY);
-	}
-	else
-	{
-		fxp_restart_ru(fp);
-	}
+	fp->fxp_tx_mess= *mp;
+	reply(fp);
 }
 
 /*===========================================================================*
- *				fxp_recv				     *
+ *				fxp_readv_s				     *
  *===========================================================================*/
-static ssize_t fxp_recv(struct netdriver_data *data, size_t max)
+static void fxp_readv_s(mp, from_int)
+message *mp;
+int from_int;
 {
-	int fxp_rx_head, fxp_rx_nbuf;
+	int i, j, n, o, r, s, count, size, fxp_rx_head, fxp_rx_nbuf;
+	endpoint_t iov_endpt;
+	cp_grant_id_t iov_grant;
 	port_t port;
 	unsigned packlen;
+	vir_bytes iov_offset;
 	u16_t rfd_status;
 	u16_t rfd_res;
+	u8_t scb_status;
 	fxp_t *fp;
+	iovec_s_t *iovp;
 	struct rfd *rfdp, *prev_rfdp;
 
 	fp= fxp_state;
+
+	count = mp->m_net_netdrv_dl_readv_s.count;
+	fp->fxp_client= mp->m_source;
+
+	assert(fp->fxp_mode == FM_ENABLED);
+	assert(fp->fxp_flags & FF_ENABLED);
 
 	port= fp->fxp_base_port;
 
@@ -833,11 +1093,10 @@ static ssize_t fxp_recv(struct netdriver_data *data, size_t max)
 	rfdp= &fp->fxp_rx_buf[fxp_rx_head];
 
 	rfd_status= rfdp->rfd_status;
-	if (!(rfd_status & RFDS_C)) {
+	if (!(rfd_status & RFDS_C))
+	{
 		/* Receive buffer is empty, suspend */
-		fxp_check_restart(fp);
-
-		return SUSPEND;
+		goto suspend;
 	}
 
 	if (!(rfd_status & RFDS_OK))
@@ -848,7 +1107,7 @@ static ssize_t fxp_recv(struct netdriver_data *data, size_t max)
 	else
 	{
 		assert(!(rfd_status & (RFDS_CRCERR | RFDS_ALIGNERR |
-			RFDS_OUTOFBUF | RFDS_DMAOVR | RFDS_TOOSHORT |
+			RFDS_OUTOFBUF | RFDS_DMAOVR | RFDS_TOOSHORT | 
 			RFDS_RXERR)));
 	}
 	rfd_res= rfdp->rfd_res;
@@ -857,11 +1116,55 @@ static ssize_t fxp_recv(struct netdriver_data *data, size_t max)
 
 	packlen= rfd_res & RFDSZ_SIZE;
 
-	/* Copy out the packet data */
-	if (packlen > max)
-		packlen = max;
+	iov_endpt = mp->m_source;
+	iov_grant = mp->m_net_netdrv_dl_readv_s.grant;
 
-	netdriver_copyout(data, 0, rfdp->rfd_buf, packlen);
+	size= 0;
+	o= 0;
+	iov_offset= 0;
+	for (i= 0; i<count; i += IOVEC_NR,
+		iov_offset += IOVEC_NR * sizeof(fp->fxp_iovec_s[0]))
+	{
+		n= IOVEC_NR;
+		if (i+n > count)
+			n= count-i;
+		r= sys_safecopyfrom(iov_endpt, iov_grant, iov_offset,
+			(vir_bytes)fp->fxp_iovec_s,
+			n * sizeof(fp->fxp_iovec_s[0]));
+		if (r != OK)
+			panic("fxp_readv_s: sys_safecopyfrom failed: %d", r);
+
+		for (j= 0, iovp= fp->fxp_iovec_s; j<n; j++, iovp++)
+		{
+			s= iovp->iov_size;
+			if (size + s > packlen)
+			{
+				assert(packlen > size);
+				s= packlen-size;
+			}
+
+			r= sys_safecopyto(iov_endpt, iovp->iov_grant,
+				0, (vir_bytes)(rfdp->rfd_buf+o), s);
+			if (r != OK)
+			{
+				panic("fxp_readv: sys_safecopyto failed: %d", r);
+			}
+
+			size += s;
+			if (size == packlen)
+				break;
+			o += s;
+		}
+		if (size == packlen)
+			break;
+	}
+	if (size < packlen)
+	{
+		assert(0);
+	}
+
+	fp->fxp_read_s= packlen;
+	fp->fxp_flags= (fp->fxp_flags & ~FF_READING) | FF_PACK_RECV;
 
 	/* Re-init the current buffer */
 	rfdp->rfd_status= 0;
@@ -887,7 +1190,43 @@ static ssize_t fxp_recv(struct netdriver_data *data, size_t max)
 	assert(fxp_rx_head < fxp_rx_nbuf);
 	fp->fxp_rx_head= fxp_rx_head;
 
-	return packlen;
+	if (!from_int)
+		reply(fp);
+
+	return;
+
+suspend:
+	if (fp->fxp_rx_need_restart)
+	{
+		fp->fxp_rx_need_restart= 0;
+
+		/* Check the status of the RU */
+		scb_status= fxp_inb(port, SCB_STATUS);
+		if ((scb_status & SS_RUS_MASK) != SS_RU_NORES)
+		{
+			/* Race condition? */
+			printf("fxp_readv: restart race: 0x%x\n",
+				scb_status);
+			assert((scb_status & SS_RUS_MASK) == SS_RU_READY);
+		}
+		else
+		{
+			fxp_restart_ru(fp);
+		}
+	}
+	if (from_int)
+	{
+		assert(fp->fxp_flags & FF_READING);
+
+		/* No need to store any state */
+		return;
+	}
+
+	fp->fxp_rx_mess= *mp;
+	assert(!(fp->fxp_flags & FF_READING));
+	fp->fxp_flags |= FF_READING;
+
+	reply(fp);
 }
 
 /*===========================================================================*
@@ -1034,14 +1373,19 @@ fxp_t *fp;
 }
 
 /*===========================================================================*
- *				fxp_stat				     *
+ *				fxp_getstat_s				     *
  *===========================================================================*/
-static void fxp_stat(eth_stat_t *stat)
+static void fxp_getstat_s(message *mp)
 {
+	int r;
 	fxp_t *fp;
 	u32_t *p;
+	eth_stat_t stats;
 
 	fp= fxp_state;
+
+	assert(fp->fxp_mode == FM_ENABLED);
+	assert(fp->fxp_flags & FF_ENABLED);
 
 	p= &fp->fxp_stat.sc_tx_fcp;
 	*p= 0;
@@ -1055,35 +1399,45 @@ static void fxp_stat(eth_stat_t *stat)
 	SPIN_UNTIL(*p != 0, 1000);
 
 	if (*p == 0)
-		panic("fxp_stat: CU command failed to complete");
+		panic("fxp_getstat: CU command failed to complete");
 	if (*p != SCM_DSC)
-		panic("fxp_stat: bad magic");
+		panic("fxp_getstat: bad magic");
 
-	stat->ets_recvErr=
+	stats.ets_recvErr=
 		fp->fxp_stat.sc_rx_crc +
 		fp->fxp_stat.sc_rx_align +
 		fp->fxp_stat.sc_rx_resource +
 		fp->fxp_stat.sc_rx_overrun +
 		fp->fxp_stat.sc_rx_cd +
 		fp->fxp_stat.sc_rx_short;
-	stat->ets_sendErr=
+	stats.ets_sendErr=
 		fp->fxp_stat.sc_tx_maxcol +
 		fp->fxp_stat.sc_tx_latecol +
 		fp->fxp_stat.sc_tx_crs;
-	stat->ets_OVW= fp->fxp_stat.sc_rx_overrun;
-	stat->ets_CRCerr= fp->fxp_stat.sc_rx_crc;
-	stat->ets_frameAll= fp->fxp_stat.sc_rx_align;
-	stat->ets_missedP= fp->fxp_stat.sc_rx_resource;
-	stat->ets_packetR= fp->fxp_stat.sc_rx_good;
-	stat->ets_packetT= fp->fxp_stat.sc_tx_good;
-	stat->ets_transDef= fp->fxp_stat.sc_tx_defered;
-	stat->ets_collision= fp->fxp_stat.sc_tx_totcol;
-	stat->ets_transAb= fp->fxp_stat.sc_tx_maxcol;
-	stat->ets_carrSense= fp->fxp_stat.sc_tx_crs;
-	stat->ets_fifoUnder= fp->fxp_stat.sc_tx_underrun;
-	stat->ets_fifoOver= fp->fxp_stat.sc_rx_overrun;
-	stat->ets_CDheartbeat= 0;
-	stat->ets_OWC= fp->fxp_stat.sc_tx_latecol;
+	stats.ets_OVW= fp->fxp_stat.sc_rx_overrun;
+	stats.ets_CRCerr= fp->fxp_stat.sc_rx_crc;
+	stats.ets_frameAll= fp->fxp_stat.sc_rx_align;
+	stats.ets_missedP= fp->fxp_stat.sc_rx_resource;
+	stats.ets_packetR= fp->fxp_stat.sc_rx_good;
+	stats.ets_packetT= fp->fxp_stat.sc_tx_good;
+	stats.ets_transDef= fp->fxp_stat.sc_tx_defered;
+	stats.ets_collision= fp->fxp_stat.sc_tx_totcol;
+	stats.ets_transAb= fp->fxp_stat.sc_tx_maxcol;
+	stats.ets_carrSense= fp->fxp_stat.sc_tx_crs;
+	stats.ets_fifoUnder= fp->fxp_stat.sc_tx_underrun;
+	stats.ets_fifoOver= fp->fxp_stat.sc_rx_overrun;
+	stats.ets_CDheartbeat= 0;
+	stats.ets_OWC= fp->fxp_stat.sc_tx_latecol;
+
+	r= sys_safecopyto(mp->m_source, mp->m_net_netdrv_dl_getstat_s.grant, 0,
+		(vir_bytes)&stats, sizeof(stats));
+	if (r != OK)
+		panic("fxp_getstat_s: sys_safecopyto failed: %d", r);
+
+	mp->m_type= DL_STAT_REPLY;
+	r= ipc_send(mp->m_source, mp);
+	if (r != OK)
+		panic("fxp_getstat_s: ipc_send failed: %d", r);
 }
 
 /*===========================================================================*
@@ -1093,6 +1447,8 @@ static void fxp_handler(fxp_t *fp)
 {
 	int port;
 	u16_t isr;
+
+	RAND_UPDATE
 
 	port= fp->fxp_base_port;
 
@@ -1104,7 +1460,11 @@ static void fxp_handler(fxp_t *fp)
 	{
 		isr &= ~SIS_FR;
 
-		fp->fxp_got_int= TRUE;
+		if (!fp->fxp_got_int && (fp->fxp_flags & FF_READING))
+		{
+			fp->fxp_got_int= TRUE;
+			interrupt(fxp_tasknr);
+		}
 	}
 	if (isr & SIS_CNA)
 	{
@@ -1112,14 +1472,18 @@ static void fxp_handler(fxp_t *fp)
 		if (!fp->fxp_tx_idle)
 		{
 			fp->fxp_send_int= TRUE;
-			fp->fxp_got_int= TRUE;
+			if (!fp->fxp_got_int)
+			{
+				fp->fxp_got_int= TRUE;
+				interrupt(fxp_tasknr);
+			}
 		}
 	}
 	if (isr & SIS_RNR)
 	{
 		isr &= ~SIS_RNR;
 
-		/* Assume that receive buffer is full of packets. fxp_recv
+		/* Assume that receive buffer is full of packets. fxp_readv
 		 * will restart the RU.
 		 */
 		fp->fxp_rx_need_restart= 1;
@@ -1136,7 +1500,7 @@ static void fxp_handler(fxp_t *fp)
  *===========================================================================*/
 static void fxp_check_ints(fxp_t *fp)
 {
-	int n, prev_tail;
+	int n, fxp_flags, prev_tail;
 	int fxp_tx_tail, fxp_tx_nbuf, fxp_tx_threshold;
 	port_t port;
 	u32_t busaddr;
@@ -1144,8 +1508,17 @@ static void fxp_check_ints(fxp_t *fp)
 	u8_t scb_status;
 	struct tx *txp;
 
-	netdriver_recv();
+	fxp_flags= fp->fxp_flags;
 
+	if (fxp_flags & FF_READING)
+	{
+		if (!(fp->fxp_rx_buf[fp->fxp_rx_head].rfd_status & RFDS_C))
+			; /* Nothing */
+		else
+		{
+			fxp_readv_s(&fp->fxp_rx_mess, TRUE /* from int */);
+		}
+	}
 	if (fp->fxp_tx_idle)
 		;	/* Nothing to do */
 	else if (fp->fxp_send_int)
@@ -1179,7 +1552,7 @@ static void fxp_check_ints(fxp_t *fp)
 
 			if (txp->tx_command & TXC_EL)
 			{
-				fp->fxp_tx_idle= TRUE;
+				fp->fxp_tx_idle= 1;
 				break;
 			}
 
@@ -1212,7 +1585,7 @@ static void fxp_check_ints(fxp_t *fp)
 			if (!fp->fxp_tx_idle)
 			{
 				fp->fxp_tx_tail= fxp_tx_tail;
-
+				
 				/* Check the status of the CU */
 				port= fp->fxp_base_port;
 				scb_status= fxp_inb(port, SCB_STATUS);
@@ -1237,37 +1610,51 @@ static void fxp_check_ints(fxp_t *fp)
 				}
 			}
 
-			fp->fxp_tx_alive = TRUE;
-
-			netdriver_send();
+			if (fp->fxp_flags & FF_SEND_AVAIL)
+			{
+				fxp_writev_s(&fp->fxp_tx_mess,
+					TRUE /* from int */);
+			}
 		}
-
+		
 	}
 	if (fp->fxp_report_link)
 		fxp_report_link(fp);
+
+	if (fp->fxp_flags & (FF_PACK_SENT | FF_PACK_RECV))
+		reply(fp);
 }
 
 /*===========================================================================*
- *				fxp_alarm				     *
+ *				fxp_watchdog_f				     *
  *===========================================================================*/
-static void fxp_alarm(clock_t __unused stamp)
+static void fxp_watchdog_f(tp)
+minix_timer_t *tp;
 {
 	fxp_t *fp;
 
-	sys_setalarm(sys_hz(), 0);
+	set_timer(&fxp_watchdog, system_hz, fxp_watchdog_f, 0);
 
 	fp= fxp_state;
+	if (fp->fxp_mode != FM_ENABLED)
+		return;
 
-	/* Check the link status. */
-	if (fxp_link_changed(fp)) {
+	/* Handle race condition, MII interface might be busy */
+	if(!fp->fxp_mii_busy)
+	{
+		/* Check the link status. */
+		if (fxp_link_changed(fp))
+		{
 #if VERBOSE
-		printf("fxp_alarm: link changed\n");
+			printf("fxp_watchdog_f: link changed\n");
 #endif
-		fp->fxp_report_link= TRUE;
-		fxp_check_ints(fp);
+			fp->fxp_report_link= TRUE;
+			fp->fxp_got_int= TRUE;
+			interrupt(fxp_tasknr);
+		}
 	}
-
-	if (fp->fxp_tx_idle)
+		
+	if (!(fp->fxp_flags & FF_SEND_AVAIL))
 	{
 		/* Assume that an idle system is alive */
 		fp->fxp_tx_alive= TRUE;
@@ -1279,15 +1666,16 @@ static void fxp_alarm(clock_t __unused stamp)
 		return;
 	}
 
-	/* XXX this flag is never actually checked! */
 	fp->fxp_need_reset= TRUE;
-	fxp_check_ints(fp);
+	fp->fxp_got_int= TRUE;
+	interrupt(fxp_tasknr);
 }
 
 /*===========================================================================*
  *				fxp_link_changed			     *
  *===========================================================================*/
-static int fxp_link_changed(fxp_t *fp)
+static int fxp_link_changed(fp)
+fxp_t *fp;
 {
 	u16_t scr;
 
@@ -1302,7 +1690,7 @@ static int fxp_link_changed(fxp_t *fp)
  *===========================================================================*/
 static void fxp_report_link(fxp_t *fp)
 {
-	u16_t mii_ctrl, mii_status, mii_id1, mii_id2,
+	u16_t mii_ctrl, mii_status, mii_id1, mii_id2, 
 		mii_ana, mii_anlpa, mii_ane, mii_extstat,
 		mii_ms_ctrl, mii_ms_status, scr;
 	u32_t oui;
@@ -1350,13 +1738,13 @@ static void fxp_report_link(fxp_t *fp)
 		return;
 	}
 
-	oui= (mii_id1 << MII_PH_OUI_H_C_SHIFT) |
+	oui= (mii_id1 << MII_PH_OUI_H_C_SHIFT) | 
 		((mii_id2 & MII_PL_OUI_L_MASK) >> MII_PL_OUI_L_SHIFT);
 	model= ((mii_id2 & MII_PL_MODEL_MASK) >> MII_PL_MODEL_SHIFT);
 	rev= (mii_id2 & MII_PL_REV_MASK);
 
 #if VERBOSE
-	printf("OUI 0x%06x, Model 0x%02x, Revision 0x%x\n", oui, model, rev);
+	printf("OUI 0x%06lx, Model 0x%02x, Revision 0x%x\n", oui, model, rev);
 #endif
 
 	if (mii_ctrl & (MII_CTRL_LB|MII_CTRL_PD|MII_CTRL_ISO))
@@ -1401,7 +1789,8 @@ static void fxp_report_link(fxp_t *fp)
 		return;
 	}
 
-#if VERBOSE
+	if (!debug) goto resspeed;
+
 	printf("%s: ", fp->fxp_name);
 	mii_print_stat_speed(mii_status, mii_extstat);
 	printf("\n");
@@ -1522,20 +1911,62 @@ static void fxp_report_link(fxp_t *fp)
 		}
 		printf("\n");
 	}
-resspeed:
-#endif
 
+resspeed:
 #if VERBOSE
 	printf("%s: link up, %d Mbps, %s duplex\n",
 		fp->fxp_name, (scr & MII_SCR_100) ? 100 : 10,
 		(scr & MII_SCR_FD) ? "full" : "half");
 #endif
+	;
+}
+
+/*===========================================================================*
+ *				reply					     *
+ *===========================================================================*/
+static void reply(fp)
+fxp_t *fp;
+{
+	message reply;
+	int flags;
+	int r;
+
+	flags = DL_NOFLAGS;
+	if (fp->fxp_flags & FF_PACK_SENT)
+		flags |= DL_PACK_SEND;
+	if (fp->fxp_flags & FF_PACK_RECV)
+		flags |= DL_PACK_RECV;
+
+	reply.m_type = DL_TASK_REPLY;
+	reply.m_netdrv_net_dl_task.flags = flags;
+	reply.m_netdrv_net_dl_task.count = fp->fxp_read_s;
+
+	r= ipc_send(fp->fxp_client, &reply);
+
+	if (r < 0)
+		panic("fxp: ipc_send failed: %d", r);
+	
+	fp->fxp_read_s = 0;
+	fp->fxp_flags &= ~(FF_PACK_SENT | FF_PACK_RECV);
+}
+
+/*===========================================================================*
+ *				mess_reply				     *
+ *===========================================================================*/
+static void mess_reply(req, reply_mess)
+message *req;
+message *reply_mess;
+{
+	if (ipc_send(req->m_source, reply_mess) != OK)
+		panic("fxp: unable to mess_reply");
 }
 
 /*===========================================================================*
  *				eeprom_read				     *
  *===========================================================================*/
-static u16_t eeprom_read(fxp_t *fp, int reg)
+static u16_t eeprom_read(fp, reg)
+fxp_t *fp;
+int reg;
 {
 	port_t port;
 	u16_t v;
@@ -1559,10 +1990,10 @@ static u16_t eeprom_read(fxp_t *fp, int reg)
 		fxp_outb(port, CSR_EEPROM, CE_EECS | b);	/* bit */
 		fxp_outb(port, CSR_EEPROM, CE_EECS | b | CE_EESK); /* Clock */
 		micro_delay(EESK_PERIOD/2+1);
-		fxp_outb(port, CSR_EEPROM, CE_EECS | b);
+		fxp_outb(port, CSR_EEPROM, CE_EECS | b);		
 		micro_delay(EESK_PERIOD/2+1);
 	}
-
+	
 	v= reg;
 	for (i= alen-1; i >= 0; i--)
 	{
@@ -1570,7 +2001,7 @@ static u16_t eeprom_read(fxp_t *fp, int reg)
 		fxp_outb(port, CSR_EEPROM, CE_EECS | b);	/* bit */
 		fxp_outb(port, CSR_EEPROM, CE_EECS | b | CE_EESK); /* Clock */
 		micro_delay(EESK_PERIOD/2+1);
-		fxp_outb(port, CSR_EEPROM, CE_EECS | b);
+		fxp_outb(port, CSR_EEPROM, CE_EECS | b);		
 		micro_delay(EESK_PERIOD/2+1);
 	}
 
@@ -1581,7 +2012,7 @@ static u16_t eeprom_read(fxp_t *fp, int reg)
 		micro_delay(EESK_PERIOD/2+1);
 		b= !!(fxp_inb(port, CSR_EEPROM) & CE_EEDO);
 		v= (v << 1) | b;
-		fxp_outb(port, CSR_EEPROM, CE_EECS );
+		fxp_outb(port, CSR_EEPROM, CE_EECS );		
 		micro_delay(EESK_PERIOD/2+1);
 	}
 	fxp_outb(port, CSR_EEPROM, 0);	/* Disable EEPROM */
@@ -1593,7 +2024,8 @@ static u16_t eeprom_read(fxp_t *fp, int reg)
 /*===========================================================================*
  *				eeprom_addrsize				     *
  *===========================================================================*/
-static void eeprom_addrsize(fxp_t *fp)
+static void eeprom_addrsize(fp)
+fxp_t *fp;
 {
 	port_t port;
 	u16_t v;
@@ -1610,7 +2042,7 @@ static void eeprom_addrsize(fxp_t *fp)
 		fxp_outb(port, CSR_EEPROM, CE_EECS | b);	/* bit */
 		fxp_outb(port, CSR_EEPROM, CE_EECS | b | CE_EESK); /* Clock */
 		micro_delay(EESK_PERIOD/2+1);
-		fxp_outb(port, CSR_EEPROM, CE_EECS | b);
+		fxp_outb(port, CSR_EEPROM, CE_EECS | b);		
 		micro_delay(EESK_PERIOD/2+1);
 	}
 
@@ -1620,7 +2052,7 @@ static void eeprom_addrsize(fxp_t *fp)
 		fxp_outb(port, CSR_EEPROM, CE_EECS | b);	/* bit */
 		fxp_outb(port, CSR_EEPROM, CE_EECS | b | CE_EESK); /* Clock */
 		micro_delay(EESK_PERIOD/2+1);
-		fxp_outb(port, CSR_EEPROM, CE_EECS | b);
+		fxp_outb(port, CSR_EEPROM, CE_EECS | b);		
 		micro_delay(EESK_PERIOD/2+1);
 		v= fxp_inb(port, CSR_EEPROM);
 		if (!(v & CE_EEDO))
@@ -1635,7 +2067,7 @@ static void eeprom_addrsize(fxp_t *fp)
 	{
 		fxp_outb(port, CSR_EEPROM, CE_EECS | CE_EESK); /* Clock */
 		micro_delay(EESK_PERIOD/2+1);
-		fxp_outb(port, CSR_EEPROM, CE_EECS );
+		fxp_outb(port, CSR_EEPROM, CE_EECS );		
 		micro_delay(EESK_PERIOD/2+1);
 	}
 	fxp_outb(port, CSR_EEPROM, 0);	/* Disable EEPROM */
@@ -1650,13 +2082,18 @@ static void eeprom_addrsize(fxp_t *fp)
 /*===========================================================================*
  *				mii_read				     *
  *===========================================================================*/
-static u16_t mii_read(fxp_t *fp, int reg)
+static u16_t mii_read(fp, reg)
+fxp_t *fp;
+int reg;
 {
 	spin_t spin;
 	port_t port;
 	u32_t v;
 
 	port= fp->fxp_base_port;
+
+	assert(!fp->fxp_mii_busy);
+	fp->fxp_mii_busy++;
 
 	if (!(fxp_inl(port, CSR_MDI_CTL) & CM_READY))
 		panic("mii_read: MDI not ready");
@@ -1672,6 +2109,9 @@ static u16_t mii_read(fxp_t *fp, int reg)
 
 	if (!(v & CM_READY))
 		panic("mii_read: MDI not ready after command");
+
+	fp->fxp_mii_busy--;
+	assert(!fp->fxp_mii_busy);
 
 	return v & CM_DATA_MASK;
 }
@@ -1716,9 +2156,12 @@ static void do_outl(port_t port, u32_t value)
 		panic("sys_outl failed: %d", r);
 }
 
-/* TODO: obviously this needs a lot of work. */
-static void tell_iommu(vir_bytes buf, size_t size, int pci_bus, int pci_dev,
-	int pci_func)
+static void tell_dev(buf, size, pci_bus, pci_dev, pci_func)
+vir_bytes buf;
+size_t size;
+int pci_bus;
+int pci_dev;
+int pci_func;
 {
 	int r;
 	endpoint_t dev_e;
@@ -1728,8 +2171,9 @@ static void tell_iommu(vir_bytes buf, size_t size, int pci_bus, int pci_dev,
 	if (r != OK)
 	{
 #if 0
-		printf("fxp`tell_iommu: ds_retrieve_label_endpt failed "
-		    "for 'amddev': %d\n", r);
+		printf(
+		"fxp`tell_dev: ds_retrieve_label_endpt failed for 'amddev': %d\n",
+			r);
 #endif
 		return;
 	}
@@ -1744,13 +2188,13 @@ static void tell_iommu(vir_bytes buf, size_t size, int pci_bus, int pci_dev,
 	r= ipc_sendrec(dev_e, &m);
 	if (r != OK)
 	{
-		printf("fxp`tell_iommu: ipc_sendrec to %d failed: %d\n",
+		printf("fxp`tell_dev: ipc_sendrec to %d failed: %d\n",
 			dev_e, r);
 		return;
 	}
 	if (m.m_type != OK)
 	{
-		printf("fxp`tell_iommu: dma map request failed: %d\n",
+		printf("fxp`tell_dev: dma map request failed: %d\n",
 			m.m_type);
 		return;
 	}
@@ -1759,3 +2203,4 @@ static void tell_iommu(vir_bytes buf, size_t size, int pci_bus, int pci_dev,
 /*
  * $PchId: fxp.c,v 1.4 2005/01/31 22:10:37 philip Exp $
  */
+

@@ -52,14 +52,13 @@ static int mini_send(struct proc *caller_ptr, endpoint_t dst_e, message
 	*m_ptr, int flags);
 */
 static int mini_receive(struct proc *caller_ptr, endpoint_t src,
-	message *m_buff_usr, int flags);
+	message *m_ptr, int flags);
 static int mini_senda(struct proc *caller_ptr, asynmsg_t *table, size_t
 	size);
 static int deadlock(int function, register struct proc *caller,
 	endpoint_t src_dst_e);
 static int try_async(struct proc *caller_ptr);
-static int try_one(endpoint_t receive_e, struct proc *src_ptr,
-	struct proc *dst_ptr);
+static int try_one(struct proc *src_ptr, struct proc *dst_ptr);
 static struct proc * pick_proc(void);
 static void enqueue_head(struct proc *rp);
 
@@ -116,8 +115,6 @@ static void set_idle_name(char * name, int n)
 		sigemptyset(&priv(dst_ptr)->s_sig_pending);		\
 		break;							\
 	}
-
-static message m_notify_buff = { 0, NOTIFY_MESSAGE };
 
 void proc_init(void)
 {
@@ -229,71 +226,6 @@ static void idle(void)
 	 * end of accounting for the idle task does not happen here, the kernel
 	 * is handling stuff for quite a while before it gets back here!
 	 */
-}
-
-/*===========================================================================*
- *                              vm_suspend                                *
- *===========================================================================*/
-void vm_suspend(struct proc *caller, const struct proc *target,
-        const vir_bytes linaddr, const vir_bytes len, const int type,
-        const int writeflag)
-{
-        /* This range is not OK for this process. Set parameters
-         * of the request and notify VM about the pending request.
-         */
-        assert(!RTS_ISSET(caller, RTS_VMREQUEST));
-        assert(!RTS_ISSET(target, RTS_VMREQUEST));
-
-        RTS_SET(caller, RTS_VMREQUEST);
-
-        caller->p_vmrequest.req_type = VMPTYPE_CHECK;
-        caller->p_vmrequest.target = target->p_endpoint;
-        caller->p_vmrequest.params.check.start = linaddr;
-        caller->p_vmrequest.params.check.length = len;
-        caller->p_vmrequest.params.check.writeflag = writeflag;
-        caller->p_vmrequest.type = type;
-
-        /* Connect caller on vmrequest wait queue. */
-        if(!(caller->p_vmrequest.nextrequestor = vmrequest))
-                if(OK != send_sig(VM_PROC_NR, SIGKMEM))
-                        panic("send_sig failed");
-        vmrequest = caller;
-}
-
-/*===========================================================================*
- *                              delivermsg                                *
- *===========================================================================*/
-static void delivermsg(struct proc *rp)
-{
-        assert(!RTS_ISSET(rp, RTS_VMREQUEST));
-        assert(rp->p_misc_flags & MF_DELIVERMSG);
-        assert(rp->p_delivermsg.m_source != NONE);
-
-        if (copy_msg_to_user(&rp->p_delivermsg,
-                                (message *) rp->p_delivermsg_vir)) {
-                if(rp->p_misc_flags & MF_MSGFAILED) {
-                        /* 2nd consecutive failure means this won't succeed */
-                        printf("WARNING wrong user pointer 0x%08lx from "
-                                "process %s / %d\n",
-                                rp->p_delivermsg_vir,
-                                rp->p_name,
-                                rp->p_endpoint);
-                        cause_sig(rp->p_nr, SIGSEGV);
-                } else {
-                        /* 1st failure means we have to ask VM to handle it */
-                        vm_suspend(rp, rp, rp->p_delivermsg_vir,
-                                sizeof(message), VMSTYPE_DELIVERMSG, 1);
-                        rp->p_misc_flags |= MF_MSGFAILED;
-                }
-        } else {
-                /* Indicate message has been delivered; address is 'used'. */
-                rp->p_delivermsg.m_source = NONE;
-                rp->p_misc_flags &= ~(MF_DELIVERMSG|MF_MSGFAILED);
-
-                if(!(rp->p_misc_flags & MF_CONTEXT_SET)) {
-                        rp->p_reg.retreg = OK;
-                }
-        }
 }
 
 /*===========================================================================*
@@ -703,11 +635,10 @@ int do_ipc(reg_t r1, reg_t r2, reg_t r3)
 /*===========================================================================*
  *				deadlock				     * 
  *===========================================================================*/
-static int deadlock(
-  int function,				/* trap number */
-  register struct proc *cp,		/* pointer to caller */
-  endpoint_t src_dst_e			/* src or dst process */
-)
+static int deadlock(function, cp, src_dst_e) 
+int function;					/* trap number */
+register struct proc *cp;			/* pointer to caller */
+endpoint_t src_dst_e;				/* src or dst process */
 {
 /* Check for deadlock. This can happen if 'caller_ptr' and 'src_dst' have
  * a cyclic dependency of blocking send and receive calls. The only cyclic 
@@ -895,7 +826,7 @@ int mini_send(
   /* Check if 'dst' is blocked waiting for this message. The destination's 
    * RTS_SENDING flag may be set when its SENDREC call blocked while sending.  
    */
-  if (WILLRECEIVE(caller_ptr->p_endpoint, dst_ptr, (vir_bytes)m_ptr, NULL)) {
+  if (WILLRECEIVE(dst_ptr, caller_ptr->p_endpoint)) {
 	int call;
 	/* Destination is indeed waiting for this message. */
 	assert(!(dst_ptr->p_misc_flags & MF_DELIVERMSG));	
@@ -977,8 +908,7 @@ static int mini_receive(struct proc * caller_ptr,
  * is available block the caller.
  */
   register struct proc **xpp;
-  int r, src_id, found, src_proc_nr, src_p;
-  endpoint_t sender_e;
+  int r, src_id, src_proc_nr, src_p;
 
   assert(!(caller_ptr->p_misc_flags & MF_DELIVERMSG));
 
@@ -1006,16 +936,10 @@ static int mini_receive(struct proc * caller_ptr,
     if (! (caller_ptr->p_misc_flags & MF_REPLY_PEND)) {
 
 	/* Check for pending notifications */
-        src_id = has_pending_notify(caller_ptr, src_p);
-        found = src_id != NULL_PRIV_ID;
-        if(found) {
+        if ((src_id = has_pending_notify(caller_ptr, src_p)) != NULL_PRIV_ID) {
+            endpoint_t hisep;
+
             src_proc_nr = id_to_nr(src_id);		/* get source proc */
-            sender_e = proc_addr(src_proc_nr)->p_endpoint;
-        }
-
-        if (found && CANRECEIVE(src_e, sender_e, caller_ptr, 0,
-          &m_notify_buff)) {
-
 #if DEBUG_ENABLE_IPC_WARNINGS
 	    if(src_proc_nr == NONE) {
 		printf("mini_receive: sending notify from NONE\n");
@@ -1025,12 +949,13 @@ static int mini_receive(struct proc * caller_ptr,
             unset_notify_pending(caller_ptr, src_id);	/* no longer pending */
 
             /* Found a suitable source, deliver the notification message. */
+	    hisep = proc_addr(src_proc_nr)->p_endpoint;
 	    assert(!(caller_ptr->p_misc_flags & MF_DELIVERMSG));	
-	    assert(src_e == ANY || sender_e == src_e);
+	    assert(src_e == ANY || hisep == src_e);
 
 	    /* assemble message */
 	    BuildNotifyMessage(&caller_ptr->p_delivermsg, src_proc_nr, caller_ptr);
-	    caller_ptr->p_delivermsg.m_source = sender_e;
+	    caller_ptr->p_delivermsg.m_source = hisep;
 	    caller_ptr->p_misc_flags |= MF_DELIVERMSG;
 
 	    IPC_STATUS_ADD_CALL(caller_ptr, NOTIFY);
@@ -1042,7 +967,7 @@ static int mini_receive(struct proc * caller_ptr,
     /* Check for pending asynchronous messages */
     if (has_pending_asend(caller_ptr, src_p) != NULL_PRIV_ID) {
         if (src_p != ANY)
-		r = try_one(src_e, proc_addr(src_p), caller_ptr);
+        	r = try_one(proc_addr(src_p), caller_ptr);
         else
         	r = try_async(caller_ptr);
 
@@ -1056,9 +981,8 @@ static int mini_receive(struct proc * caller_ptr,
     xpp = &caller_ptr->p_caller_q;
     while (*xpp) {
 	struct proc * sender = *xpp;
-	endpoint_t sender_e = sender->p_endpoint;
 
-        if (CANRECEIVE(src_e, sender_e, caller_ptr, 0, &sender->p_sendmsg)) {
+        if (src_e == ANY || src_p == proc_nr(sender)) {
             int call;
 	    assert(!RTS_ISSET(sender, RTS_SLOT_FREE));
 	    assert(!RTS_ISSET(sender, RTS_NO_ENDPOINT));
@@ -1142,8 +1066,8 @@ int mini_notify(
   /* Check to see if target is blocked waiting for this message. A process 
    * can be both sending and receiving during a SENDREC system call.
    */
-  if (WILLRECEIVE(caller_ptr->p_endpoint, dst_ptr, 0, &m_notify_buff) &&
-    !(dst_ptr->p_misc_flags & MF_REPLY_PEND)) {
+    if (WILLRECEIVE(dst_ptr, caller_ptr->p_endpoint) &&
+      ! (dst_ptr->p_misc_flags & MF_REPLY_PEND)) {
       /* Destination is indeed waiting for a message. Assemble a notification 
        * message and deliver it. Copy from pseudo-source HARDWARE, since the
        * message is in the kernel's address space.
@@ -1171,8 +1095,18 @@ int mini_notify(
 
 #define ASCOMPLAIN(caller, entry, field)	\
 	printf("kernel:%s:%d: asyn failed for %s in %s "	\
-	"(%d/%zu, tab 0x%lx)\n",__FILE__,__LINE__,	\
+	"(%d/%d, tab 0x%lx)\n",__FILE__,__LINE__,	\
 field, caller->p_name, entry, priv(caller)->s_asynsize, priv(caller)->s_asyntab)
+
+#define A_RETR_FLD(entry, field)	\
+  if(data_copy(caller_ptr->p_endpoint,	\
+	 table_v + (entry)*sizeof(asynmsg_t) + offsetof(struct asynmsg,field),\
+		KERNEL, (vir_bytes) &tabent.field,	\
+			sizeof(tabent.field)) != OK) {\
+		ASCOMPLAIN(caller_ptr, entry, #field);	\
+		r = EFAULT; \
+	        goto asyn_error; \
+	}
 
 #define A_RETR(entry) do {			\
   if (data_copy(				\
@@ -1183,17 +1117,25 @@ field, caller->p_name, entry, priv(caller)->s_asynsize, priv(caller)->s_asyntab)
   			r = EFAULT;		\
 	                goto asyn_error; \
   }						\
-  else if(tabent.dst == SELF) { \
-      tabent.dst = caller_ptr->p_endpoint; \
-  } \
   			 } while(0)
+
+#define A_INSRT_FLD(entry, field)	\
+  if(data_copy(KERNEL, (vir_bytes) &tabent.field, \
+	caller_ptr->p_endpoint,	\
+ 	table_v + (entry)*sizeof(asynmsg_t) + offsetof(struct asynmsg,field),\
+		sizeof(tabent.field)) != OK) {\
+		ASCOMPLAIN(caller_ptr, entry, #field);	\
+		r = EFAULT; \
+	        goto asyn_error; \
+	}
 
 #define A_INSRT(entry) do {			\
   if (data_copy(KERNEL, (vir_bytes) &tabent,	\
   		caller_ptr->p_endpoint, table_v + (entry)*sizeof(asynmsg_t),\
   		sizeof(tabent)) != OK) {	\
   			ASCOMPLAIN(caller_ptr, entry, "message entry");	\
-			/* Do NOT set r or goto asyn_error here! */ \
+  			r = EFAULT;		\
+	                goto asyn_error; \
   }						\
   			  } while(0)	
 
@@ -1212,14 +1154,12 @@ int try_deliver_senda(struct proc *caller_ptr,
   struct priv *privp;
   asynmsg_t tabent;
   const vir_bytes table_v = (vir_bytes) table;
-  message *m_ptr = NULL;
 
   privp = priv(caller_ptr);
 
   /* Clear table */
   privp->s_asyntab = -1;
   privp->s_asynsize = 0;
-  privp->s_asynendpoint = caller_ptr->p_endpoint;
 
   if (size == 0) return(OK);  /* Nothing to do, just return */
 
@@ -1266,7 +1206,7 @@ int try_deliver_senda(struct proc *caller_ptr,
 		r = EDEADSRCDST; /* Bad destination, report the error */
 	else if (iskerneln(dst_p)) 
 		r = ECALLDENIED; /* Asyn sends to the kernel are not allowed */
-	else if (!may_asynsend_to(caller_ptr, dst_p))
+	else if (!may_send_to(caller_ptr, dst_p)) 
 		r = ECALLDENIED; /* Send denied by IPC mask */
 	else 	/* r == OK */
 		dst_ptr = proc_addr(dst_p);
@@ -1280,8 +1220,7 @@ int try_deliver_senda(struct proc *caller_ptr,
 	 * If AMF_NOREPLY is set, do not satisfy the receiving part of
 	 * a SENDREC.
 	 */
-	if (r == OK && WILLRECEIVE(caller_ptr->p_endpoint, dst_ptr,
-	    (vir_bytes)&table[i].msg, NULL) &&
+	if (r == OK && WILLRECEIVE(dst_ptr, caller_ptr->p_endpoint) &&
 	    (!(flags&AMF_NOREPLY) || !(dst_ptr->p_misc_flags&MF_REPLY_PEND))) {
 		/* Destination is indeed waiting for this message. */
 		dst_ptr->p_delivermsg = tabent.msg;
@@ -1307,7 +1246,7 @@ int try_deliver_senda(struct proc *caller_ptr,
 		do_notify = TRUE;
 	else if (r != OK && (flags & AMF_NOTIFY_ERR))
 		do_notify = TRUE;
-	A_INSRT(i);	/* Copy results to caller; ignore errors */
+	A_INSRT(i);	/* Copy results to caller */
 	continue;
 
 asyn_error:
@@ -1348,7 +1287,8 @@ static int mini_senda(struct proc *caller_ptr, asynmsg_t *table, size_t size)
 /*===========================================================================*
  *				try_async				     * 
  *===========================================================================*/
-static int try_async(struct proc * caller_ptr)
+static int try_async(caller_ptr)
+struct proc *caller_ptr;
 {
   int r;
   struct priv *privp;
@@ -1379,7 +1319,7 @@ static int try_async(struct proc * caller_ptr)
 #endif
 
 	assert(!(caller_ptr->p_misc_flags & MF_DELIVERMSG));
-	if ((r = try_one(ANY, src_ptr, caller_ptr)) == OK)
+	if ((r = try_one(src_ptr, caller_ptr)) == OK)
 		return(r);
   }
 
@@ -1390,14 +1330,13 @@ static int try_async(struct proc * caller_ptr)
 /*===========================================================================*
  *				try_one					     *
  *===========================================================================*/
-static int try_one(endpoint_t receive_e, struct proc *src_ptr,
-    struct proc *dst_ptr)
+static int try_one(struct proc *src_ptr, struct proc *dst_ptr)
 {
 /* Try to receive an asynchronous message from 'src_ptr' */
   int r = EAGAIN, done, do_notify;
   unsigned int flags, i;
   size_t size;
-  endpoint_t dst, src_e;
+  endpoint_t dst;
   struct proc *caller_ptr;
   struct priv *privp;
   asynmsg_t tabent;
@@ -1412,11 +1351,9 @@ static int try_one(endpoint_t receive_e, struct proc *src_ptr,
   unset_sys_bit(priv(dst_ptr)->s_asyn_pending, privp->s_id);
 
   if (size == 0) return(EAGAIN);
-  if (privp->s_asynendpoint != src_ptr->p_endpoint) return EAGAIN;
-  if (!may_asynsend_to(src_ptr, proc_nr(dst_ptr))) return (ECALLDENIED);
+  if (!may_send_to(src_ptr, proc_nr(dst_ptr))) return(ECALLDENIED);
 
   caller_ptr = src_ptr;	/* Needed for A_ macros later on */
-  src_e = src_ptr->p_endpoint;
 
   /* Scan the table */
   do_notify = FALSE;
@@ -1457,12 +1394,6 @@ static int try_one(endpoint_t receive_e, struct proc *src_ptr,
 	/* Message must be directed at receiving end */
 	if (dst != dst_ptr->p_endpoint) continue;
 
-	if (!CANRECEIVE(receive_e, src_e, dst_ptr,
-		table_v + i*sizeof(asynmsg_t) + offsetof(struct asynmsg,msg),
-		NULL)) {
-		continue;
-	}
-
 	/* If AMF_NOREPLY is set, then this message is not a reply to a
 	 * SENDREC and thus should not satisfy the receiving part of the
 	 * SENDREC. This message is to be delivered later.
@@ -1480,15 +1411,12 @@ static int try_one(endpoint_t receive_e, struct proc *src_ptr,
 #endif
 
 store_result:
-	/* Store results for sender. We may just have started delivering a
-	 * message, so we must not return an error to the caller in the case
-	 * that storing the results triggers an error!
-	 */
+	/* Store results for sender */
 	tabent.result = r;
 	tabent.flags = flags | AMF_DONE;
 	if (flags & AMF_NOTIFY) do_notify = TRUE;
 	else if (r != OK && (flags & AMF_NOTIFY_ERR)) do_notify = TRUE;
-	A_INSRT(i);	/* Copy results to sender; ignore errors */
+	A_INSRT(i);	/* Copy results to sender */
 
 	break;
   }
@@ -1577,7 +1505,7 @@ int cancel_async(struct proc *src_ptr, struct proc *dst_ptr)
 	tabent.flags = flags | AMF_DONE;
 	if (flags & AMF_NOTIFY) do_notify = TRUE;
 	else if (r != OK && (flags & AMF_NOTIFY_ERR)) do_notify = TRUE;
-	A_INSRT(i);	/* Copy results to sender; ignore errors */
+	A_INSRT(i);	/* Copy results to sender */
   }
 
   if (do_notify) 
@@ -1774,8 +1702,6 @@ void dequeue(struct proc *rp)
 	rp->p_accounting.enter_queue = 0;
   }
 
-  /* For ps(1), remember when the process was last dequeued. */
-  rp->p_dequeued = get_monotonic();
 
 #if DEBUG_SANITYCHECKS
   assert(runqueues_ok_local());
@@ -1831,11 +1757,15 @@ struct proc *endpoint_lookup(endpoint_t e)
  *				isokendpt_f				     *
  *===========================================================================*/
 #if DEBUG_ENABLE_IPC_WARNINGS
-int isokendpt_f(const char * file, int line, endpoint_t e, int * p,
-	const int fatalflag)
+int isokendpt_f(file, line, e, p, fatalflag)
+const char *file;
+int line;
 #else
-int isokendpt_f(endpoint_t e, int * p, const int fatalflag)
+int isokendpt_f(e, p, fatalflag)
 #endif
+endpoint_t e;
+int *p;
+const int fatalflag;
 {
 	int ok = 0;
 	/* Convert an endpoint number into a process number.
@@ -1970,7 +1900,7 @@ void release_fpu(struct proc * p) {
 		*fpu_owner_ptr = NULL;
 }
 
-void ser_dump_proc(void)
+void ser_dump_proc()
 {
         struct proc *pp;
 
@@ -1980,4 +1910,9 @@ void ser_dump_proc(void)
                         continue;
                 print_proc_recursive(pp);
         }
+}
+
+void increase_proc_signals(struct proc *p)
+{
+	p->p_signal_received++;
 }

@@ -2,35 +2,36 @@
 
 .include <bsd.own.mk>
 
-SUBDIR=	add_route arp at backup \
+SUBDIR=	add_route arp at backup btrace \
 	cawf cdprobe \
-	cleantmp \
+	ci cleantmp cmp co \
 	compress crc cron crontab \
-	DESCRIBE devmand devsize dhcpd \
-	dhrystone \
-	eject \
-	fix format fsck.mfs \
-	gcov-pull host \
+	dd decomp16 DESCRIBE devmand devsize dhcpd \
+	dhrystone diff diskctl \
+	eject fbdctl \
+	find fix format fsck.mfs \
+	gcov-pull grep host \
 	hostaddr ifconfig ifdef \
-	intr irdpd isoread \
+	intr ipcrm ipcs irdpd isoread \
 	loadkeys loadramdisk logger look lp \
 	lpd lspci mail MAKEDEV \
-	minix-service mount mt netconf \
+	mined \
+	mount mt netconf \
 	nonamed \
-	prep printroot \
-	profile progressbar pr_routes \
-	ramdisk rarpd rawspeed readclock \
+	postinstall prep printroot \
+	profile progressbar pr_routes ps pwdauth \
+	ramdisk rarpd rawspeed rcp readclock \
 	remsync rget rlogin \
-	rotate setup \
+	rotate rsh rshd service setup \
 	slip spell sprofalyze sprofdiff srccrc \
-	svrctl swifi synctree sysenv \
-	tcpd tcpdp tcpstat telnet \
-	telnetd term termcap tget \
+	svclog svrctl swifi synctree sysenv \
+	syslogd tcpd tcpdp tcpstat telnet \
+	telnetd term termcap tget time \
 	truncate udpstat umount \
 	update version vol \
 	writeisofs fetch \
-	zmodem pkgin_cd pkgin_all pkgin_sets \
-	worldstone updateboot update_asr update_bootcfg \
+	zdump zmodem pkgin_cd pkgin_all pkgin_sets \
+	worldstone updateboot update_bootcfg \
 	atnormalize dosread fdisk loadfont \
 	autopart part partition playwave  \
 	recwave repartition screendump

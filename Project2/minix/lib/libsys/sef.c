@@ -1,9 +1,6 @@
 #include "syslib.h"
 #include <assert.h>
 #include <minix/sysutil.h>
-#include <minix/rs.h>
-#include <minix/timers.h>
-#include <minix/endpoint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -13,21 +10,13 @@
 #define SEF_SELF_NAME_MAXLEN 20
 char sef_self_name[SEF_SELF_NAME_MAXLEN];
 endpoint_t sef_self_endpoint = NONE;
-endpoint_t sef_self_proc_nr;
 int sef_self_priv_flags;
-int sef_self_init_flags;
+int sef_self_first_receive_done;
 int sef_self_receiving;
-int sef_controlled_crash;
-
-/* Extern variables. */
-EXTERN int sef_lu_state;
-EXTERN int __sef_st_before_receive_enabled;
-EXTERN __attribute__((weak)) int __vm_init_fresh;
 
 /* Debug. */
 #if SEF_INIT_DEBUG || SEF_LU_DEBUG || SEF_PING_DEBUG || SEF_SIGNAL_DEBUG
-#define SEF_DEBUG_HEADER_MAXLEN 50
-static int sef_debug_init = 0;
+#define SEF_DEBUG_HEADER_MAXLEN 32
 static time_t sef_debug_boottime = 0;
 static u32_t sef_debug_system_hz = 0;
 static time_t sef_debug_time_sec = 0;
@@ -51,9 +40,6 @@ EXTERN int do_sef_lu_request(message *m_ptr);
 /* SEF Signal prototypes. */
 EXTERN int do_sef_signal_request(message *m_ptr);
 
-/* State transfer prototypes. */
-EXTERN void do_sef_st_before_receive(void);
-
 /* SEF GCOV prototypes. */
 #ifdef USE_COVERAGE
 EXTERN int do_sef_gcov_request(message *m_ptr);
@@ -71,30 +57,21 @@ void sef_startup()
   int r, status;
   endpoint_t old_endpoint;
   int priv_flags;
-  int init_flags;
-  int sys_upd_flags = 0;
 
   /* Get information about self. */
   r = sys_whoami(&sef_self_endpoint, sef_self_name, SEF_SELF_NAME_MAXLEN,
-      &priv_flags, &init_flags);
+      &priv_flags);
   if ( r != OK) {
-      panic("sef_startup: sys_whoami failed: %d\n", r);
+      sef_self_endpoint = SELF;
+      strlcpy(sef_self_name, "Unknown", sizeof(sef_self_name));
   }
-
-  sef_self_proc_nr = _ENDPOINT_P(sef_self_endpoint);
   sef_self_priv_flags = priv_flags;
-  sef_self_init_flags = init_flags;
-  sef_lu_state = SEF_LU_STATE_NULL;
-  sef_controlled_crash = FALSE;
   old_endpoint = NONE;
-  if(init_flags & SEF_LU_NOMMAP) {
-      sys_upd_flags |= SF_VM_NOMMAP;
-  }
 
 #if USE_LIVEUPDATE
   /* RS may wake up with the wrong endpoint, perfom the update in that case. */
   if((sef_self_priv_flags & ROOT_SYS_PROC) && sef_self_endpoint != RS_PROC_NR) {
-      r = vm_update(RS_PROC_NR, sef_self_endpoint, sys_upd_flags);
+      r = vm_update(RS_PROC_NR, sef_self_endpoint);
       if(r != OK) {
           panic("unable to update RS from instance %d to %d: %d",
               RS_PROC_NR, sef_self_endpoint, r);
@@ -112,8 +89,8 @@ void sef_startup()
           panic("RS unable to complete init: %d", r);
       }
   }
-  else if(sef_self_endpoint == VM_PROC_NR && __vm_init_fresh) {
-      /* VM handles fresh initialization by RS later */
+  else if(sef_self_endpoint == VM_PROC_NR) {
+  	/* VM handles initialization by RS later */
   } else {
       message m;
 
@@ -128,7 +105,7 @@ void sef_startup()
           if(r != OK) {
               panic("unable to ipc_receive from RS: %d", r);
           }
-      } while(!IS_SEF_INIT_REQUEST(&m, status));
+      } while(!IS_SEF_INIT_REQUEST(&m));
 
       /* Process initialization request for this system service. */
       if((r = do_sef_init_request(&m)) != OK) {
@@ -138,10 +115,8 @@ void sef_startup()
 #endif
 
   /* (Re)initialize SEF variables. */
+  sef_self_first_receive_done = FALSE;
   sef_self_priv_flags = priv_flags;
-  sef_self_init_flags = init_flags;
-  sef_lu_state = SEF_LU_STATE_NULL;
-  sef_controlled_crash = FALSE;
 }
 
 /*===========================================================================*
@@ -150,7 +125,7 @@ void sef_startup()
 int sef_receive_status(endpoint_t src, message *m_ptr, int *status_ptr)
 {
 /* SEF receive() interface for system services. */
-  int r, status, m_type;
+  int r, status;
 
   sef_self_receiving = TRUE;
 
@@ -163,106 +138,62 @@ int sef_receive_status(endpoint_t src, message *m_ptr, int *status_ptr)
 
 #if INTERCEPT_SEF_LU_REQUESTS
       /* Handle SEF Live update before receive events. */
-      if(sef_lu_state != SEF_LU_STATE_NULL) {
-          do_sef_lu_before_receive();
-      }
-
-      /* Handle State transfer before receive events. */
-      if(__sef_st_before_receive_enabled) {
-          do_sef_st_before_receive();
-      }
+      do_sef_lu_before_receive();
 #endif
 
       /* Receive and return in case of error. */
       r = ipc_receive(src, m_ptr, &status);
       if(status_ptr) *status_ptr = status;
+      if(!sef_self_first_receive_done) sef_self_first_receive_done = TRUE;
       if(r != OK) {
           return r;
       }
 
-      m_type = m_ptr->m_type;
-      if (is_ipc_notify(status)) {
-          switch (m_ptr->m_source) {
-              case SYSTEM:
-                  m_type = SEF_SIGNAL_REQUEST_TYPE;
-              break;
-              case RS_PROC_NR:
-                  m_type = SEF_PING_REQUEST_TYPE;
-              break;
-          }
-      }
-      switch(m_type) {
-
-#if INTERCEPT_SEF_INIT_REQUESTS
-      case SEF_INIT_REQUEST_TYPE:
-          /* Intercept SEF Init requests. */
-          if(IS_SEF_INIT_REQUEST(m_ptr, status)) {
-              /* Ignore spurious init requests. */
-              if (m_ptr->m_rs_init.type != SEF_INIT_FRESH
-                  || sef_self_endpoint != VM_PROC_NR)
+#if INTERCEPT_SEF_PING_REQUESTS
+      /* Intercept SEF Ping requests. */
+      if(IS_SEF_PING_REQUEST(m_ptr, status)) {
+          if(do_sef_ping_request(m_ptr) == OK) {
               continue;
           }
-      break;
-#endif
-
-#if INTERCEPT_SEF_PING_REQUESTS
-      case SEF_PING_REQUEST_TYPE:
-          /* Intercept SEF Ping requests. */
-          if(IS_SEF_PING_REQUEST(m_ptr, status)) {
-              if(do_sef_ping_request(m_ptr) == OK) {
-                  continue;
-              }
-          }
-      break;
+      }
 #endif
 
 #if INTERCEPT_SEF_LU_REQUESTS
-      case SEF_LU_REQUEST_TYPE:
-          /* Intercept SEF Live update requests. */
-          if(IS_SEF_LU_REQUEST(m_ptr, status)) {
-              if(do_sef_lu_request(m_ptr) == OK) {
-                  continue;
-              }
+      /* Intercept SEF Live update requests. */
+      if(IS_SEF_LU_REQUEST(m_ptr, status)) {
+          if(do_sef_lu_request(m_ptr) == OK) {
+              continue;
           }
-      break;
+      }
 #endif
 
 #if INTERCEPT_SEF_SIGNAL_REQUESTS
-      case SEF_SIGNAL_REQUEST_TYPE:
-          /* Intercept SEF Signal requests. */
-          if(IS_SEF_SIGNAL_REQUEST(m_ptr, status)) {
-              if(do_sef_signal_request(m_ptr) == OK) {
-                  continue;
-              }
+      /* Intercept SEF Signal requests. */
+      if(IS_SEF_SIGNAL_REQUEST(m_ptr, status)) {
+          if(do_sef_signal_request(m_ptr) == OK) {
+              continue;
           }
-      break;
-#endif
-
-#if INTERCEPT_SEF_GCOV_REQUESTS && USE_COVERAGE
-      case SEF_GCOV_REQUEST_TYPE:
-          /* Intercept GCOV data requests (sent by VFS in vfs/gcov.c). */
-          if(IS_SEF_GCOV_REQUEST(m_ptr, status)) {
-              if(do_sef_gcov_request(m_ptr) == OK) {
-                  continue;
-              }
-          }
-      break;
-#endif
-
-#if INTERCEPT_SEF_FI_REQUESTS
-      case SEF_FI_REQUEST_TYPE:
-          /* Intercept SEF Fault Injection requests. */
-          if(IS_SEF_FI_REQUEST(m_ptr, status)) {
-              if(do_sef_fi_request(m_ptr) == OK) {
-                  continue;
-              }
-          }
-      break;
-#endif
-
-      default:
-      break;
       }
+#endif
+
+#ifdef USE_COVERAGE
+      /* Intercept GCOV data requests (sent by VFS in vfs/gcov.c). */
+      if(m_ptr->m_type == COMMON_REQ_GCOV_DATA &&
+	 m_ptr->m_source == VFS_PROC_NR) {
+          if(do_sef_gcov_request(m_ptr) == OK) {
+              continue;
+          }
+      }
+#endif
+
+#ifdef INTERCEPT_SEF_FI_REQUESTS
+      /* Intercept Fault injection requests. */
+      if(IS_SEF_FI_REQUEST(m_ptr, status)) {
+          if(do_sef_fi_request(m_ptr) == OK) {
+              continue;
+          }
+      }
+#endif
 
       /* If we get this far, this is not a valid SEF request, return and
        * let the caller deal with that.
@@ -301,14 +232,6 @@ void sef_cancel(void)
 }
 
 /*===========================================================================*
- *                              sef_getrndseed              		     *
- *===========================================================================*/
-int sef_getrndseed(void)
-{
-    return (int)getticks();
-}
-
-/*===========================================================================*
  *      	                  sef_exit                                   *
  *===========================================================================*/
 void sef_exit(int status)
@@ -316,6 +239,7 @@ void sef_exit(int status)
 /* System services use a special version of exit() that generates a
  * self-termination signal.
  */
+  message m;
 
   /* Ask the kernel to exit. */
   sys_exit();
@@ -330,24 +254,6 @@ __weak_alias(_exit, sef_exit);
 __weak_alias(__exit, sef_exit);
 #endif
 
-/*===========================================================================*
- *                                sef_munmap                                 *
- *===========================================================================*/
-int sef_munmap(void *addrstart, vir_bytes len, int type)
-{
-/* System services use a special version of munmap() to control implicit
- * munmaps as startup and allow for asynchronous mnmap for VM.
- */
-  message m;
-  m.m_type = type;
-  m.VMUM_ADDR = addrstart;
-  m.VMUM_LEN = len;
-  if(sef_self_endpoint == VM_PROC_NR) {
-      return asynsend3(SELF, &m, AMF_NOREPLY);
-  }
-  return _syscall(VM_PROC_NR, type, &m);
-}
-
 #if SEF_INIT_DEBUG || SEF_LU_DEBUG || SEF_PING_DEBUG || SEF_SIGNAL_DEBUG
 /*===========================================================================*
  *                         sef_debug_refresh_params              	     *
@@ -356,26 +262,40 @@ static void sef_debug_refresh_params(void)
 {
 /* Refresh SEF debug params. */
   clock_t uptime;
+  int r;
 
-  /* Get boottime and system hz the first time. */
-  if(!sef_debug_init) {
-      if (sys_times(NONE, NULL, NULL, NULL, &sef_debug_boottime) != OK)
-	  sef_debug_init = -1;
-      else if (sys_getinfo(GET_HZ, &sef_debug_system_hz,
-        sizeof(sef_debug_system_hz), 0, 0) != OK)
-	  sef_debug_init = -1;
-      else
-	  sef_debug_init = 1;
+  /* Get boottime the first time. */
+  if(!sef_debug_boottime) {
+      r = sys_times(NONE, NULL, NULL, NULL, &sef_debug_boottime);
+      if ( r != OK) {
+          sef_debug_boottime = -1;
+      }
+  }
+
+  /* Get system hz the first time. */
+  if(!sef_debug_system_hz) {
+      r = sys_getinfo(GET_HZ, &sef_debug_system_hz,
+          sizeof(sef_debug_system_hz), 0, 0);
+      if ( r != OK) {
+          sef_debug_system_hz = -1;
+      }
   }
 
   /* Get uptime. */
   uptime = -1;
-  if (sef_debug_init < 1 || sys_times(NONE, NULL, NULL, &uptime, NULL) != OK) {
+  if(sef_debug_boottime!=-1 && sef_debug_system_hz!=-1) {
+      r = sys_times(NONE, NULL, NULL, &uptime, NULL);
+      if ( r != OK) {
+            uptime = -1;
+      }
+  }
+
+  /* Compute current time. */
+  if(sef_debug_boottime==-1 || sef_debug_system_hz==-1 || uptime==-1) {
       sef_debug_time_sec = 0;
       sef_debug_time_us = 0;
   }
   else {
-      /* Compute current time. */
       sef_debug_time_sec = (time_t) (sef_debug_boottime
           + (uptime/sef_debug_system_hz));
       sef_debug_time_us = (uptime%sef_debug_system_hz)

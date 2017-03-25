@@ -9,16 +9,7 @@
  *===========================================================================*/
 
 /* Major device numbers. */
-
-/* Note that NO_DEV is major 0, minor 0, and means "no device".  In contrast,
- * NONE_MAJOR is used for file systems that do not have backing device (but are
- * mounted on device 'none').  For administrative purposes, these file systems
- * need to be assigned a pseudo device, and such pseudo devices are allocated
- * with major number NONE_MAJOR.  Because of NO_DEV, the NONE_MAJOR devices
- * start from minor number 1.  Otherwise, NONE_MAJOR is completely independent
- * from NO_DEV, and it should be possible to set NONE_MAJOR to a nonzero value!
- */
-#define NONE_MAJOR		   0	/*  0 = pseudo device for 'none' FSes */
+#define NONE_MAJOR		   0	/*  0 = not used                      */
 #define MEMORY_MAJOR  		   1	/*  1 = /dev/mem    (memory devices)  */
 #define FLOPPY_MAJOR	           2	/*  2 = /dev/fd0    (floppy disks)    */
                                         /*  3 = /dev/c0                       */
@@ -77,9 +68,8 @@
 					/* 56-63 = /dev/vnd[0-7] (vnd)	      */
 #define INPUT_MAJOR		  64	/* 64 = /dev/input (input)            */
 #define USB_BASE_MAJOR		  65	/* 65-133 = USB major range	      */
-#define PCI_MAJOR		 134	/* 134 = /dev/pci (pci)            */
 
-#define NR_DEVICES   		 135	/* number of (major) devices */
+#define NR_DEVICES   		 134	/* number of (major) devices */
 
 /* Minor device numbers for memory driver. */
 #  define RAM_DEV_OLD  		   0	/* minor device for /dev/ram */
@@ -91,18 +81,6 @@
 #  define IMGRD_DEV   		   6	/* minor device for /dev/imgrd */
 #  define RAM_DEV_FIRST		   7	/* first minor device for /dev/ram* */
 
-/* Minor device numbers for the TTY driver. */
-#  define CONS_MINOR		   0	/* console device */
-
-/* Minor device numbers for the PTY driver. */
-#  define UNIX98_MINOR		  256	/* Base number of UNIX98 PTYs, which
-					 * are allocated in (master,slave)
-					 * pairs: 256=master#0, 257=slave#0,
-					 * 258=master#1, 259=slave#1, etc.
-					 * This logic is shared between the
-					 * PTY service and libc devname(3).
-					 */
-
 #define CTRLR(n) ((n)==0 ? 3 : (8 + 2*((n)-1)))	/* magic formula */
 
 /* Minor device numbers for log driver. */
@@ -113,3 +91,4 @@
 #  define DEV_IMGRD   ((dev_t) 0x0106)	/* device number of /dev/imgrd */
 
 #endif /* _DMAP_H */
+

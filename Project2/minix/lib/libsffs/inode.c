@@ -30,7 +30,7 @@ struct inode *init_inode(void)
 /* Initialize inode table. Return the root inode.
  */
   struct inode *ino;
-  unsigned int i;
+  unsigned int index;
 
   TAILQ_INIT(&free_list);
 
@@ -38,11 +38,11 @@ struct inode *init_inode(void)
 	sffs_name, NUM_INODES, sizeof(struct inode), sizeof(inodes)));
 
   /* Mark all inodes except the root inode as free. */
-  for (i = 1; i < NUM_INODES; i++) {
-	ino = &inodes[i];
+  for (index = 1; index < NUM_INODES; index++) {
+	ino = &inodes[index];
 	ino->i_parent = NULL;
 	LIST_INIT(&ino->i_child);
-	ino->i_num = i + 1;
+	ino->i_num = index + 1;
 	ino->i_gen = (unsigned short)-1; /* aesthetics */
 	ino->i_ref = 0;
 	ino->i_flags = 0;
@@ -70,19 +70,19 @@ struct inode *find_inode(ino_t ino_nr)
 /* Get an inode based on its inode number. Do not increase its reference count.
  */
   struct inode *ino;
-  int i;
+  int index;
 
   /* Inode 0 (= index -1) is not a valid inode number. */
-  i = INODE_INDEX(ino_nr);
-  if (i < 0) {
+  index = INODE_INDEX(ino_nr);
+  if (index < 0) {
 	printf("%s: VFS passed invalid inode number!\n", sffs_name);
 
 	return NULL;
   }
 
-  assert(i < NUM_INODES);
+  assert(index < NUM_INODES);
 
-  ino = &inodes[i];
+  ino = &inodes[index];
 
   /* Make sure the generation number matches. */
   if (INODE_GEN(ino_nr) != ino->i_gen) {
@@ -261,10 +261,10 @@ int have_used_inode(void)
 /* Check whether any inodes are still in use, that is, any of the inodes have
  * a reference count larger than zero.
  */
-  unsigned int i;
+  unsigned int index;
 
-  for (i = 0; i < NUM_INODES; i++)
-	if (inodes[i].i_ref > 0)
+  for (index = 0; index < NUM_INODES; index++)
+	if (inodes[index].i_ref > 0)
 		return TRUE;
 
   return FALSE;
@@ -273,16 +273,19 @@ int have_used_inode(void)
 /*===========================================================================*
  *				do_putnode				     *
  *===========================================================================*/
-int do_putnode(ino_t ino_nr, unsigned int count)
+int do_putnode(void)
 {
 /* Decrease an inode's reference count.
  */
   struct inode *ino;
+  int count;
 
-  if ((ino = find_inode(ino_nr)) == NULL)
+  if ((ino = find_inode(m_in.m_vfs_fs_putnode.inode)) == NULL)
 	return EINVAL;
 
-  if (count > ino->i_ref) return EINVAL;
+  count = m_in.m_vfs_fs_putnode.count;
+
+  if (count <= 0 || count > ino->i_ref) return EINVAL;
 
   ino->i_ref -= count - 1;
 

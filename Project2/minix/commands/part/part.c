@@ -1578,7 +1578,7 @@ ssize_t boot_readwrite(int rw)
 {
 	int r = 0;
 
-	if (lseek(device, (off_t)offset * SECTOR_SIZE, SEEK_SET) < 0)
+	if (lseek(device, offset * SECTOR_SIZE, SEEK_SET) < 0)
 		return -1;
 
 	switch (rw) {
@@ -1806,7 +1806,7 @@ void m_dump(int ev, object_t *op)
 			pe->sysind,
 			chs[0], chs[1], chs[2]);
 		dos2chs(&pe->last_head, chs);
-		printf("%6d%5d%4d%10u%10u%9u",
+		printf("%6d%5d%4d%10lu%10ld%9lu",
 			chs[0], chs[1], chs[2],
 			pe->lowsec,
 			howend == SIZE ? pe->size : pe->size + pe->lowsec - 1,

@@ -1208,10 +1208,8 @@ void apply_mkold(const char *file, const char *err)
 		return;
 	}
 	fprintf(stderr, "made %s look old", file);
-	if (err != nil)
-		fprintf(stderr, " due to a remote problem: %s\n", err);
-	else
-		fprintf(stderr, "\n");
+	fprintf(stderr, err == nil ? "\n" : " due to a remote problem: %s\n",
+								err);
 }
 
 void apply_chmod(const char *file, mode_t mode, uid_t uid, gid_t gid, int talk)

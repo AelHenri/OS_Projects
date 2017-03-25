@@ -23,7 +23,7 @@ static int (*unbind_cb) (struct devman_usb_bind_cb_data *data, endpoint_t ep);
  ***************************************************************************/
 static void 
 devman_usb_add_attr
-(struct devman_dev *dev, const char *name, const char *data)
+(struct devman_dev *dev, char *name, char *data)
 {
 	struct devman_static_attribute *attr = (struct devman_static_attribute *)
 	    malloc(sizeof(struct devman_static_attribute));
@@ -48,33 +48,33 @@ add_device_attributes
 	int ret;
 	char data[32];
 	
-	ret = snprintf(data,sizeof(data),"0x%02x",udev->desc->bDeviceClass);
+	ret = sprintf(data,"0x%02x",udev->desc->bDeviceClass);
 	if (ret < 0) {
-		panic("add_device_attributes: snprintf failed");
+		panic("add_device_attributes: sprintf failed");
 	}
 	devman_usb_add_attr(udev->dev, "bDeviceClass", data);
 	
-	ret = snprintf(data,sizeof(data),"0x%02x",udev->desc->bDeviceSubClass);
+	ret = sprintf(data,"0x%02x",udev->desc->bDeviceSubClass);
 	if (ret < 0) {
-		panic("add_device_attributes: snprintf failed");
+		panic("add_device_attributes: sprintf failed");
 	}
 	devman_usb_add_attr(udev->dev, "bDeviceSubClass", data);
 
-	ret = snprintf(data,sizeof(data),"0x%02x",udev->desc->bDeviceProtocol);
+	ret = sprintf(data,"0x%02x",udev->desc->bDeviceProtocol);
 	if (ret < 0) {
-		panic("add_device_attributes: snprintf failed");
+		panic("add_device_attributes: sprintf failed");
 	}
 	devman_usb_add_attr(udev->dev, "bDeviceProtocol", data);
 
-	ret = snprintf(data,sizeof(data),"0x%04x",UGETW(udev->desc->idVendor));
+	ret = sprintf(data,"0x%04x",UGETW(udev->desc->idVendor));
 	if (ret < 0) {
-		panic("add_device_attributes: snprintf failed");
+		panic("add_device_attributes: sprintf failed");
 	}
 	devman_usb_add_attr(udev->dev, "idVendor", data);
 	
-	ret = snprintf(data,sizeof(data),"0x%04x",UGETW(udev->desc->idProduct));
+	ret = sprintf(data,"0x%04x",UGETW(udev->desc->idProduct));
 	if (ret < 0) {
-		panic("add_device_attributes: snprintf failed");
+		panic("add_device_attributes: sprintf failed");
 	}
 	devman_usb_add_attr(udev->dev, "idProduct", data);	
 
@@ -97,39 +97,39 @@ add_interface_attributes
 	int ret;
 	char data[32];
 	
-	ret = snprintf(data,sizeof(data),"0x%02x",intf->desc->bInterfaceNumber);
+	ret = sprintf(data,"0x%02x",intf->desc->bInterfaceNumber);
 	if (ret < 0) {
-		panic("add_device_attributes: snprintf failed");
+		panic("add_device_attributes: sprintf failed");
 	}
 	devman_usb_add_attr(intf->dev, "bInterfaceNumber", data);
 
-	ret = snprintf(data,sizeof(data),"0x%02x",intf->desc->bAlternateSetting);
+	ret = sprintf(data,"0x%02x",intf->desc->bAlternateSetting);
 	if (ret < 0) {
-		panic("add_device_attributes: snprintf failed");
+		panic("add_device_attributes: sprintf failed");
 	}
 	devman_usb_add_attr(intf->dev, "bAlternateSetting", data);
 
-	ret = snprintf(data,sizeof(data),"0x%02x",intf->desc->bNumEndpoints);
+	ret = sprintf(data,"0x%02x",intf->desc->bNumEndpoints);
 	if (ret < 0) {
-		panic("add_device_attributes: snprintf failed");
+		panic("add_device_attributes: sprintf failed");
 	}
 	devman_usb_add_attr(intf->dev, "bNumEndpoints", data);
 
-	ret = snprintf(data,sizeof(data),"0x%02x",intf->desc->bInterfaceClass);
+	ret = sprintf(data,"0x%02x",intf->desc->bInterfaceClass);
 	if (ret < 0) {
-		panic("add_device_attributes: snprintf failed");
+		panic("add_device_attributes: sprintf failed");
 	}
 	devman_usb_add_attr(intf->dev, "bInterfaceClass", data);
 
-	ret = snprintf(data,sizeof(data),"0x%02x",intf->desc->bInterfaceSubClass);
+	ret = sprintf(data,"0x%02x",intf->desc->bInterfaceSubClass);
 	if (ret < 0) {
-		panic("add_device_attributes: snprintf failed");
+		panic("add_device_attributes: sprintf failed");
 	}
 	devman_usb_add_attr(intf->dev, "bInterfaceSubClass", data);
 
-	ret = snprintf(data,sizeof(data),"0x%02x",intf->desc->bInterfaceProtocol);
+	ret = sprintf(data,"0x%02x",intf->desc->bInterfaceProtocol);
 	if (ret < 0) {
-		panic("add_device_attributes: snprintf failed");
+		panic("add_device_attributes: sprintf failed");
 	}
 	devman_usb_add_attr(intf->dev, "bInterfaceProtocol", data);
 	

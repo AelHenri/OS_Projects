@@ -1,7 +1,9 @@
+NOGCCERROR=yes
+NOCLANGERROR=yes
+CPPFLAGS+= -D_MINIX_SYSTEM
+
 # Makefile for libvirtio
 .include <bsd.own.mk>
-
-CPPFLAGS+= -D_MINIX_SYSTEM
 
 LIB=	virtio
 

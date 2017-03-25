@@ -175,14 +175,7 @@ static void adjust_offsets(Elf_Phdr phdrs[], int phnum)
  *===========================================================================*/
 static void write_buf(struct filp *f, char *buf, size_t size)
 {
-  /*
-   * TODO: pass in the proper file descriptor number.  It really doesn't matter
-   * what we pass in, because the write target is a regular file.  As such, the
-   * write call will never be suspended, and suspension is the only case that
-   * read_write() could use the file descriptor.  Still, passing in an invalid
-   * value isn't exactly nice.
-   */
-  read_write(fp, WRITING, -1 /*fd*/, f, (vir_bytes)buf, size, VFS_PROC_NR);
+  read_write(fp, WRITING, f, (vir_bytes)buf, size, VFS_PROC_NR);
 }
 
 /*===========================================================================*

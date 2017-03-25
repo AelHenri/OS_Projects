@@ -98,7 +98,7 @@ int do_utimens(void)
 	 || actim.tv_nsec == UTIME_OMIT
 	 || modtim.tv_nsec == UTIME_NOW
 	 || modtim.tv_nsec == UTIME_OMIT) {
-		(void)clock_time(&now);
+		now = clock_timespec();
 	}
 
 	/* Build the request */

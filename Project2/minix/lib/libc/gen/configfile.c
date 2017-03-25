@@ -149,7 +149,7 @@ static void skipwhite(void)
     }
 }
 
-static void __dead parse_err(void)
+static void parse_err(void)
 /* Tell user that you can't parse past the current character. */
 {
     char sc[2];
@@ -534,8 +534,7 @@ static void print_list(int indent, config_t *cfg)
 {
     while (cfg != nil) {
 	if (!config_issub(cfg)) {
-	    fprintf(stderr, "Cell at \"%s\", line %u is not a sublist\n",
-		c_file, c_line);
+	    fprintf(stderr, "Cell at \"%s\", line %u is not a sublist\n");
 	    break;
 	}
 	printf("%*s", indent, "");

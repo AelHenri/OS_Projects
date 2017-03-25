@@ -1,4 +1,4 @@
-/* VTreeFS - sdbm.c - sdbm hash function */
+/* VTreeFS - sdbm.c - by Alen Stojanov and David van Moolenbroek */
 
 /*
  * sdbm - ndbm work-alike hashed database library
@@ -10,7 +10,6 @@
  */
 
 #include "inc.h"
-
 /*
  * polynomial conversion ignoring overflows
  * [this seems to work remarkably well, in fact better
@@ -18,8 +17,7 @@
  * use: 65599	nice.
  *      65587   even better.
  */
-long
-sdbm_hash(const char *str, int len)
+long sdbm_hash(char *str, int len)
 {
 	unsigned long n = 0;
 

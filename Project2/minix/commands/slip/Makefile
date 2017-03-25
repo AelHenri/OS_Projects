@@ -1,4 +1,4 @@
 PROG=	slip
-MAN=	slip.8
+MAN=
 
 .include <bsd.prog.mk>

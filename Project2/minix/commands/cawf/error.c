@@ -35,11 +35,12 @@
  * Error(t, l, s1, s2) - issue error message
  */
 
-void Error(int t, int l, char *s1, char *s2) {
-/* type: WARN or FATAL t
- * LINE: display Line[] l
- * optional text s1 and s2
- */
+void
+Error(t, l, s1, s2)
+	int t;				/* type: WARN or FATAL */
+	int l;				/* LINE: display Line[] */
+	char *s1, *s2;			/* optional text */
+{
 	char msg[MAXLINE];		/* message */
 
 	if (t == WARN && !Dowarn) return;
@@ -68,13 +69,14 @@ void Error(int t, int l, char *s1, char *s2) {
  * Error3(len, word, sarg, narg) - process error in pass3
  */
 
-void Error3(int len, char* word, char *sarg, int narg, char *msg) {
-/* length (negative is special) len
- * word word
- * string argument sarg
- * numeric argument narg
- * message msg
- */
+void
+Error3(len, word, sarg, narg, msg)
+	int len;			/* length (negative is special */
+        char *word;			/* word */
+        char *sarg;			/* string argument */
+        int narg;                       /* numeric argument */
+	char *msg;			/* message */
+{
 	if (len == MESSAGE) {
 		(void) fprintf(Efs, "%s: (%s, %d) %s\n",
 			Pname,

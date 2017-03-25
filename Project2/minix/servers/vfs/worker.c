@@ -1,19 +1,13 @@
 #include "fs.h"
-#include <string.h>
 #include <assert.h>
 
+static void worker_get_work(void);
 static void *worker_main(void *arg);
 static void worker_sleep(void);
 static void worker_wake(struct worker_thread *worker);
-
 static mthread_attr_t tattr;
-static unsigned int pending;
-static unsigned int busy;
-static int block_all;
 
-#if defined(_MINIX_MAGIC)
-# define TH_STACKSIZE (64 * 1024)
-#elif defined(MKCOVERAGE)
+#ifdef MKCOVERAGE
 # define TH_STACKSIZE (40 * 1024)
 #else
 # define TH_STACKSIZE (28 * 1024)
@@ -26,7 +20,7 @@ static int block_all;
  *===========================================================================*/
 void worker_init(void)
 {
-/* Initialize worker threads */
+/* Initialize worker thread */
   struct worker_thread *wp;
   int i;
 
@@ -34,10 +28,9 @@ void worker_init(void)
 	panic("failed to initialize attribute");
   if (mthread_attr_setstacksize(&tattr, TH_STACKSIZE) != 0)
 	panic("couldn't set default thread stack size");
-
+  if (mthread_attr_setdetachstate(&tattr, MTHREAD_CREATE_DETACHED) != 0)
+	panic("couldn't set default thread detach state");
   pending = 0;
-  busy = 0;
-  block_all = FALSE;
 
   for (i = 0; i < NR_WTHREADS; i++) {
 	wp = &workers[i];
@@ -48,169 +41,36 @@ void worker_init(void)
 	if (mutex_init(&wp->w_event_mutex, NULL) != 0)
 		panic("failed to initialize mutex");
 	if (cond_init(&wp->w_event, NULL) != 0)
-		panic("failed to initialize condition variable");
+		panic("failed to initialize conditional variable");
 	if (mthread_create(&wp->w_tid, &tattr, worker_main, (void *) wp) != 0)
 		panic("unable to start thread");
   }
 
   /* Let all threads get ready to accept work. */
-  worker_yield();
-}
-
-/*===========================================================================*
- *				worker_cleanup				     *
- *===========================================================================*/
-void worker_cleanup(void)
-{
-/* Clean up worker threads, reversing the actions of worker_init() such that
- * we can safely call worker_init() again later. All worker threads are
- * expected to be idle already. Used for live updates, because transferring
- * the thread stacks from one version to another is currently not feasible.
- */
-  struct worker_thread *wp;
-  int i;
-
-  assert(worker_idle());
-
-  /* First terminate all threads. */
-  for (i = 0; i < NR_WTHREADS; i++) {
-	wp = &workers[i];
-
-	assert(wp->w_fp == NULL);
-
-	/* Waking up the thread with no w_fp will cause it to exit. */
-	worker_wake(wp);
-  }
-
-  worker_yield();
-
-  /* Then clean up their resources. */
-  for (i = 0; i < NR_WTHREADS; i++) {
-	wp = &workers[i];
-
-	if (mthread_join(wp->w_tid, NULL) != 0)
-		panic("worker_cleanup: could not join thread %d", i);
-	if (cond_destroy(&wp->w_event) != 0)
-		panic("failed to destroy condition variable");
-	if (mutex_destroy(&wp->w_event_mutex) != 0)
-		panic("failed to destroy mutex");
-  }
-
-  /* Finally, clean up global resources. */
-  if (mthread_attr_destroy(&tattr) != 0)
-	panic("failed to destroy attribute");
-
-  memset(workers, 0, sizeof(workers));
-}
-
-/*===========================================================================*
- *				worker_idle				     *
- *===========================================================================*/
-int worker_idle(void)
-{
-/* Return whether all worker threads are idle. */
-
-  return (pending == 0 && busy == 0);
-}
-
-/*===========================================================================*
- *				worker_assign				     *
- *===========================================================================*/
-static void worker_assign(struct fproc *rfp)
-{
-/* Assign the work for the given process to a free thread. The caller must
- * ensure that there is in fact at least one free thread.
- */
-  struct worker_thread *worker;
-  int i;
-
-  /* Find a free worker thread. */
-  for (i = 0; i < NR_WTHREADS; i++) {
-	worker = &workers[i];
-
-	if (worker->w_fp == NULL)
-		break;
-  }
-  assert(worker != NULL);
-
-  /* Assign work to it. */
-  rfp->fp_worker = worker;
-  worker->w_fp = rfp;
-  busy++;
-
-  worker_wake(worker);
-}
-
-/*===========================================================================*
- *				worker_may_do_pending			     *
- *===========================================================================*/
-static int worker_may_do_pending(void)
-{
-/* Return whether there is a free thread that may do pending work. This is true
- * only if there is pending work at all, and there is a free non-spare thread
- * (the spare thread is never used for pending work), and VFS is currently
- * processing new requests at all (this may not be true during initialization).
- */
-
-  /* Ordered by likelihood to be false. */
-  return (pending > 0 && worker_available() > 1 && !block_all);
-}
-
-/*===========================================================================*
- *				worker_allow				     *
- *===========================================================================*/
-void worker_allow(int allow)
-{
-/* Allow or disallow workers to process new work. If disallowed, any new work
- * will be stored as pending, even when there are free worker threads. There is
- * no facility to stop active workers. To be used only during initialization!
- */
-  struct fproc *rfp;
-
-  block_all = !allow;
-
-  if (!worker_may_do_pending())
-	return;
-
-  /* Assign any pending work to workers. */
-  for (rfp = &fproc[0]; rfp < &fproc[NR_PROCS]; rfp++) {
-	if (rfp->fp_flags & FP_PENDING) {
-		rfp->fp_flags &= ~FP_PENDING; /* No longer pending */
-		assert(pending > 0);
-		pending--;
-		worker_assign(rfp);
-
-		if (!worker_may_do_pending())
-			return;
-	}
-  }
+  yield_all();
 }
 
 /*===========================================================================*
  *				worker_get_work				     *
  *===========================================================================*/
-static int worker_get_work(void)
+static void worker_get_work(void)
 {
 /* Find new work to do. Work can be 'queued', 'pending', or absent. In the
- * latter case wait for new work to come in. Return TRUE if there is work to
- * do, or FALSE if the current thread is requested to shut down.
+ * latter case wait for new work to come in.
  */
   struct fproc *rfp;
 
-  assert(self->w_fp == NULL);
-
-  /* Is there pending work, and should we do it? */
-  if (worker_may_do_pending()) {
+  /* Do we have queued work to do? */
+  if (pending > 0) {
 	/* Find pending work */
 	for (rfp = &fproc[0]; rfp < &fproc[NR_PROCS]; rfp++) {
 		if (rfp->fp_flags & FP_PENDING) {
 			self->w_fp = rfp;
 			rfp->fp_worker = self;
-			busy++;
 			rfp->fp_flags &= ~FP_PENDING; /* No longer pending */
-			assert(pending > 0);
 			pending--;
-			return TRUE;
+			assert(pending >= 0);
+			return;
 		}
 	}
 	panic("Pending work inconsistency");
@@ -218,8 +78,6 @@ static int worker_get_work(void)
 
   /* Wait for work to come to us */
   worker_sleep();
-
-  return (self->w_fp != NULL);
 }
 
 /*===========================================================================*
@@ -227,8 +85,13 @@ static int worker_get_work(void)
  *===========================================================================*/
 int worker_available(void)
 {
-/* Return the number of threads that are available, including the spare thread.
- */
+  int busy, i;
+
+  busy = 0;
+  for (i = 0; i < NR_WTHREADS; i++) {
+	if (workers[i].w_fp != NULL)
+		busy++;
+  }
 
   return(NR_WTHREADS - busy);
 }
@@ -243,7 +106,8 @@ static void *worker_main(void *arg)
   self = (struct worker_thread *) arg;
   ASSERTW(self);
 
-  while (worker_get_work()) {
+  while(TRUE) {
+	worker_get_work();
 
 	fp = self->w_fp;
 	assert(fp->fp_worker == self);
@@ -282,11 +146,9 @@ static void *worker_main(void *arg)
 
 	fp->fp_worker = NULL;
 	self->w_fp = NULL;
-	assert(busy > 0);
-	busy--;
   }
 
-  return(NULL);
+  return(NULL);	/* Unreachable */
 }
 
 /*===========================================================================*
@@ -298,11 +160,12 @@ int worker_can_start(struct fproc *rfp)
  * This function is used to serialize invocation of "special" procedures, and
  * not entirely safe for other cases, as explained in the comments below.
  */
-  int is_pending, is_active, has_normal_work;
+  int is_pending, is_active, has_normal_work, has_pm_work;
 
   is_pending = (rfp->fp_flags & FP_PENDING);
   is_active = (rfp->fp_worker != NULL);
   has_normal_work = (rfp->fp_func != NULL);
+  has_pm_work = (rfp->fp_flags & FP_PM_WORK);
 
   /* If there is no work scheduled for the process, we can start work. */
   if (!is_pending && !is_active) return TRUE;
@@ -333,21 +196,29 @@ static void worker_try_activate(struct fproc *rfp, int use_spare)
 /* See if we can wake up a thread to do the work scheduled for the given
  * process. If not, mark the process as having pending work for later.
  */
-  int needed;
+  int i, available, needed;
+  struct worker_thread *worker;
 
   /* Use the last available thread only if requested. Otherwise, leave at least
    * one spare thread for deadlock resolution.
    */
   needed = use_spare ? 1 : 2;
 
-  /* Also make sure that doing new work is allowed at all right now, which may
-   * not be the case during VFS initialization. We do always allow callback
-   * calls, i.e., calls that may use the spare thread. The reason is that we do
-   * not support callback calls being marked as pending, so the (entirely
-   * theoretical) exception here may (entirely theoretically) avoid deadlocks.
-   */
-  if (needed <= worker_available() && (!block_all || use_spare)) {
-	worker_assign(rfp);
+  worker = NULL;
+  for (i = available = 0; i < NR_WTHREADS; i++) {
+	if (workers[i].w_fp == NULL) {
+		if (worker == NULL)
+			worker = &workers[i];
+		if (++available >= needed)
+			break;
+	}
+  }
+
+  if (available >= needed) {
+	assert(worker != NULL);
+	rfp->fp_worker = worker;
+	worker->w_fp = rfp;
+	worker_wake(worker);
   } else {
 	rfp->fp_flags |= FP_PENDING;
 	pending++;
@@ -423,18 +294,6 @@ void worker_start(struct fproc *rfp, void (*func)(void), message *m_ptr,
    */
   if (!is_pending && !is_active)
 	worker_try_activate(rfp, use_spare);
-}
-
-/*===========================================================================*
- *				worker_yield				     *
- *===========================================================================*/
-void worker_yield(void)
-{
-/* Yield to all worker threads. To be called from the main thread only. */
-
-  mthread_yield_all();
-
-  self = NULL;
 }
 
 /*===========================================================================*
@@ -535,17 +394,20 @@ void worker_signal(struct worker_thread *worker)
 void worker_stop(struct worker_thread *worker)
 {
   ASSERTW(worker);		/* Make sure we have a valid thread */
-  /* This thread is communicating with a driver or file server */
-  if (worker->w_drv_sendrec != NULL) {			/* Driver */
-	assert(worker->w_task != NONE);
-	worker->w_drv_sendrec->m_type = EIO;
-	worker->w_drv_sendrec = NULL;
-  } else if (worker->w_sendrec != NULL) {		/* FS */
-	/* worker->w_task may be NONE if the FS message was still queued */
-	worker->w_sendrec->m_type = EIO;
-	worker->w_sendrec = NULL;
-  } else
-	panic("reply storage consistency error");	/* Oh dear */
+  if (worker->w_task != NONE) {
+	/* This thread is communicating with a driver or file server */
+	if (worker->w_drv_sendrec != NULL) {			/* Driver */
+		worker->w_drv_sendrec->m_type = EIO;
+	} else if (worker->w_sendrec != NULL) {		/* FS */
+		worker->w_sendrec->m_type = EIO;
+	} else {
+		panic("reply storage consistency error");	/* Oh dear */
+	}
+  } else {
+	/* This shouldn't happen at all... */
+	printf("VFS: stopping worker not blocked on any task?\n");
+	util_stacktrace();
+  }
   worker_wake(worker);
 }
 

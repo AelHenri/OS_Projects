@@ -9,25 +9,14 @@
 
 
 /*===========================================================================*
- *				get_block				     *
+ *				no_sys					     *
  *===========================================================================*/
-struct buf *get_block(dev_t dev, block_t block, int how)
+int no_sys()
 {
-/* Wrapper routine for lmfs_get_block(). This ext2 implementation does not deal
- * well with block read errors pretty much anywhere. To prevent corruption due
- * to unchecked error conditions, we panic upon an I/O failure here.
- */
-  struct buf *bp;
-  int r;
-
-  if ((r = lmfs_get_block(&bp, dev, block, how)) != OK && r != ENOENT)
-	panic("ext2: error getting block (%llu,%u): %d", dev, block, r);
-
-  assert(r == OK || how == PEEK);
-
-  return (r == OK) ? bp : NULL;
+/* Somebody has used an illegal system call number */
+  printf("no_sys: invalid call %d\n", req_nr);
+  return(EINVAL);
 }
-
 
 
 /*===========================================================================*
@@ -60,6 +49,55 @@ long x;				/* 32-bit long to be byte swapped */
   l = ( (long) lo <<16) | hi;
   return(l);
 }
+
+
+/*===========================================================================*
+ *				clock_time				     *
+ *===========================================================================*/
+time_t clock_time()
+{
+/* This routine returns the time in seconds since 1.1.1970.  MINIX is an
+ * astrophysically naive system that assumes the earth rotates at a constant
+ * rate and that such things as leap seconds do not exist.
+ */
+
+  register int k;
+  clock_t uptime;
+  clock_t realtime;
+  time_t boottime;
+
+  if ( (k=getuptime(&uptime, &realtime, &boottime)) != OK)
+		panic("clock_time: getuptme2 failed: %d", k);
+
+  return( (time_t) (boottime + (realtime/sys_hz())));
+}
+
+
+/*===========================================================================*
+ *				mfs_min					     *
+ *===========================================================================*/
+int min(unsigned int l, unsigned int r)
+{
+  if(r >= l) return(l);
+
+  return(r);
+}
+
+
+/*===========================================================================*
+ *				mfs_nul					     *
+ *===========================================================================*/
+void mfs_nul_f(const char *file, int line, const char *str, unsigned int len,
+		      unsigned int maxlen)
+{
+  if(len < maxlen && str[len-1] != '\0') {
+	printf("ext2 %s:%d string (length %d, maxlen %d) not null-terminated\n",
+		file, line, len, maxlen);
+  }
+}
+
+#define MYASSERT(c) if(!(c)) { printf("ext2:%s:%d: sanity check: %s failed\n", \
+  file, line, #c); panic("sanity check " #c " failed: %d", __LINE__); }
 
 
 /*===========================================================================*

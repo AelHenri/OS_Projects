@@ -36,8 +36,8 @@ extern char **env_argv;
 
 void env_setargs(int argc, char *argv[]);
 int env_get_param(const char *key, char *value, int max_size);
-int env_prefix(const char *env, const char *prefix);
-void __dead env_panic(const char *key);
+int env_prefix(char *env, char *prefix);
+void env_panic(const char *key);
 int env_parse(const char *env, const char *fmt, int field,
 	long *param, long min, long max);
 
@@ -46,8 +46,6 @@ int env_parse(const char *env, const char *fmt, int field,
 #define fkey_events(fkeys, sfkeys) fkey_ctl(FKEY_EVENTS, (fkeys), (sfkeys))
 int fkey_ctl(int req, int *fkeys, int *sfkeys);
 
-struct timespec;
-
 int printf(const char *fmt, ...);
 void kputc(int c);
 __dead void panic(const char *fmt, ...)
@@ -55,7 +53,7 @@ __dead void panic(const char *fmt, ...)
 void panic_hook(void);
 void __panic_hook(void);
 int getuptime(clock_t *ticks, clock_t *realtime, time_t *boottime);
-clock_t getticks(void);
+int getticks(clock_t *ticks);
 int tickdelay(clock_t ticks);
 int tsc_calibrate(void);
 u32_t sys_hz(void);
@@ -66,7 +64,6 @@ u32_t tsc_64_to_micros(u64_t tsc);
 u32_t tsc_to_micros(u32_t low, u32_t high);
 u32_t tsc_get_khz(void);
 u32_t micros_to_ticks(u32_t micros);
-time_t clock_time(struct timespec *tv);
 #if defined(__arm__)
 void read_frclock(u32_t *frclk);
 u32_t delta_frclock(u32_t base, u32_t cur);
@@ -80,16 +77,9 @@ u32_t sqrt_approx(u32_t);
 
 int stime(time_t *_top);
 
-void cpuavg_init(struct cpuavg *);
-void cpuavg_increment(struct cpuavg *, clock_t, clock_t);
-uint32_t cpuavg_getstats(const struct cpuavg *, uint32_t *, uint32_t *,
-	clock_t, clock_t);
-uint32_t cpuavg_getccpu(void);
-
 #define asynsend(ep, msg) asynsend3(ep, msg, 0)
 int asynsend3(endpoint_t ep, message *msg, int flags);
 int asyn_geterror(endpoint_t *dst, message *msg, int *err);
-int senda_reload(void);
 
 #define ASSERT(c) if(!(c)) { panic("%s:%d: assert %s failed", __FILE__, __LINE__, #c); }
 
@@ -109,9 +99,6 @@ struct util_timingdata {
 };
 
 typedef struct util_timingdata util_timingdata_t;
-
-/* GCOV support (not always compiled in) */
-int gcov_flush(endpoint_t endpt, cp_grant_id_t grant, size_t bufsize);
 
 #endif /* _MINIX_SYSUTIL_H */
 

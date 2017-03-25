@@ -1,29 +1,62 @@
 /* buf.c - by Alen Stojanov and David van Moolenbroek, taken from procfs */
+#define _SYSTEM		1	/* tell headers that this is the kernel */
+#define DEVMAN_SERVER	1
 
-#include "devman.h"
-#include "proto.h"
+#include <minix/config.h>
+#include <errno.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <lib.h>
+#include <minix/timers.h>
+
+#include <minix/callnr.h>
+#include <minix/type.h>
+#include <minix/const.h>
+#include <minix/com.h>
+#include <minix/syslib.h>
+#include <minix/sysutil.h>
+#include <minix/vfsif.h>
+#include <minix/endpoint.h>
+#include <minix/sysinfo.h>
+#include <minix/u64.h>
+#include <minix/sysinfo.h>
+#include <minix/type.h>
+#include <minix/ipc.h>
+
+#include <sys/time.h>
+#include <sys/times.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+
+#include <minix/vtreefs.h>
+
+#include <minix/devman.h>
+
+
 #include <stdarg.h>
 #include <assert.h>
+#include <string.h>
+#define BUF_SIZE 4096
 
-static char *buf;
-static size_t left, used;
+static char buf[BUF_SIZE + 1];
+static size_t off, left, used;
 static off_t skip;
 
 /*===========================================================================*
  *				buf_init				     *
  *===========================================================================*/
-void buf_init(char *ptr, size_t len, off_t start)
+void buf_init(off_t start, size_t len)
 {
-	/* Initialize the buffer for fresh use. The output is to be stored into
-	 * 'ptr' which is BUF_SIZE bytes in size, since that is the size we
-	 * requested. Due to the way vsnprintf works, we cannot use the last
-	 * byte of this buffer. The first 'start' bytes of the produced output
-	 * are to be skipped. After that, a total of 'len' bytes are requested.
+	/* Initialize the buffer for fresh use. The first 'start' bytes of the
+	 * produced output are to be skipped. After that, up to a total of
+	 * 'len' bytes are requested.
 	 */
 
-	buf = ptr;
 	skip = start;
-	left = MIN(len, BUF_SIZE - 1);
+	left = MIN(len, BUF_SIZE);
+	off = 0;
 	used = 0;
 }
 
@@ -42,23 +75,21 @@ void buf_printf(char *fmt, ...)
 
 	/* There is no way to estimate how much space the result will take, so
 	 * we need to produce the string even when skipping part of the start.
+	 * If part of the result is to be skipped, do not memcpy; instead, save
+	 * the offset of where the result starts within the buffer.
+	 *
 	 * The null terminating character is not part of the result, so room
 	 * must be given for it to be stored after completely filling up the
 	 * requested part of the buffer.
 	 */
-	max = MIN(skip + left + 1, BUF_SIZE);
+	max = MIN(skip + left, BUF_SIZE);
 
 	va_start(args, fmt);
-	len = vsnprintf(&buf[used], max, fmt, args);
+	len = vsnprintf(&buf[off + used], max + 1, fmt, args);
 	va_end(args);
 
-	/* The snprintf family returns the number of bytes that would be stored
-	 * if the buffer were large enough, excluding the null terminator.
-	 */
-	if (len >= BUF_SIZE)
-		len = BUF_SIZE - 1;
-
 	if (skip > 0) {
+		assert(off == 0);
 		assert(used == 0);
 
 		if (skip >= len) {
@@ -67,15 +98,16 @@ void buf_printf(char *fmt, ...)
 			return;
 		}
 
-		memmove(buf, &buf[skip], len - skip);
-
-		len -= skip;
+		off = skip;
+		if (left > BUF_SIZE - off)
+			left = BUF_SIZE - off;
+		len -= off;
 		skip = 0;
 	}
 
 	assert(skip == 0);
 	assert(len >= 0);
-	assert((ssize_t) left >= 0);
+	assert((long) left >= 0);
 
 	if (len > (ssize_t) left)
 		len = left;
@@ -110,20 +142,22 @@ void buf_append(char *data, size_t len)
 	if (len > left)
 		len = left;
 
-	memcpy(&buf[used], data, len);
+	memcpy(&buf[off + used], data, len);
 
 	used += len;
 	left -= len;
 }
 
 /*===========================================================================*
- *				buf_result				     *
+ *				buf_get					     *
  *===========================================================================*/
-ssize_t buf_result(void)
+size_t buf_get(char **ptr)
 {
-	/* Return the resulting number of bytes produced, not counting the
-	 * trailing null character in the buffer.
+	/* Return the buffer's starting address and the length of the used
+	 * part, not counting the trailing null character for the latter.
 	 */
+
+	*ptr = &buf[off];
 
 	return used;
 }

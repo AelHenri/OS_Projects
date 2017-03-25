@@ -1,4 +1,4 @@
-/* ProcFS - root.c - generators for static files in the root directory */
+/* ProcFS - root.c - by Alen Stojanov and David van Moolenbroek */
 
 #include "inc.h"
 
@@ -6,6 +6,7 @@
 #include <machine/pci.h>
 #endif
 #include <minix/dmap.h>
+#include "cpuinfo.h"
 
 static void root_hz(void);
 static void root_uptime(void);
@@ -37,22 +38,24 @@ struct file root_files[] = {
 	{ NULL,		0,		NULL			}
 };
 
-/*
- * Print the system clock frequency.
- */
-static void
-root_hz(void)
+/*===========================================================================*
+ *				root_hz					     *
+ *===========================================================================*/
+static void root_hz(void)
 {
+	/* Print the system clock frequency.
+	 */
 
-	buf_printf("%lu\n", (unsigned long)sys_hz());
+	buf_printf("%lu\n", (long) sys_hz());
 }
 
-/*
- * Print load averages.
- */
-static void
-root_loadavg(void)
+/*===========================================================================*
+ *				root_loadavg				     *
+ *===========================================================================*/
+static void root_loadavg(void)
 {
+	/* Print load averages.
+	 */
 	struct load loads[3];
 	ldiv_t avg[3];
 
@@ -64,29 +67,34 @@ root_loadavg(void)
 	avg[2] = ldiv(100L * loads[2].proc_load / loads[2].ticks, 100);
 
 	buf_printf("%ld.%02ld %ld.%02ld %ld.%02ld\n",
-	    avg[0].quot, avg[0].rem, avg[1].quot, avg[1].rem,
-	    avg[2].quot, avg[2].rem);
+		avg[0].quot, avg[0].rem, avg[1].quot, avg[1].rem,
+		avg[2].quot, avg[2].rem);
 }
 
-/*
- * Print the current uptime.
- */
-static void
-root_uptime(void)
+/*===========================================================================*
+ *				root_uptime				     *
+ *===========================================================================*/
+static void root_uptime(void)
 {
+	/* Print the current uptime.
+	 */
+	clock_t ticks;
 	ldiv_t division;
 
-	division = ldiv(100L * getticks() / sys_hz(), 100L);
+	if (getticks(&ticks) != OK)
+		return;
+	division = ldiv(100L * ticks / sys_hz(), 100L);
 
 	buf_printf("%ld.%0.2ld\n", division.quot, division.rem);
 }
 
-/*
- * Print general kernel information.
- */
-static void
-root_kinfo(void)
+/*===========================================================================*
+ *				root_kinfo				     *
+ *===========================================================================*/
+static void root_kinfo(void)
 {
+	/* Print general kernel information.
+	 */
 	struct kinfo kinfo;
 
 	if (sys_getkinfo(&kinfo) != OK)
@@ -95,30 +103,32 @@ root_kinfo(void)
 	buf_printf("%u %u\n", kinfo.nr_procs, kinfo.nr_tasks);
 }
 
-/*
- * Print general memory information.
- */
-static void
-root_meminfo(void)
+/*===========================================================================*
+ *				root_meminfo				     *
+ *===========================================================================*/
+static void root_meminfo(void)
 {
+	/* Print general memory information.
+	 */
 	struct vm_stats_info vsi;
 
 	if (vm_info_stats(&vsi) != OK)
 		return;
 
-	buf_printf("%u %lu %lu %lu %lu\n", vsi.vsi_pagesize, vsi.vsi_total,
-	    vsi.vsi_free, vsi.vsi_largest, vsi.vsi_cached);
+	buf_printf("%u %lu %lu %lu %lu\n", vsi.vsi_pagesize,
+		vsi.vsi_total, vsi.vsi_free, vsi.vsi_largest, vsi.vsi_cached);
 }
 
+/*===========================================================================*
+ *				root_pci				     *
+ *===========================================================================*/
 #if defined(__i386__)
-/*
- * Print information about PCI devices present in the system.
- */
-static void
-root_pci(void)
+static void root_pci(void)
 {
-	u16_t vid, did, subvid, subdid;
-	u8_t bcr, scr, pifr, rev;
+	/* Print information about PCI devices present in the system.
+	 */
+	u16_t vid, did;
+	u8_t bcr, scr, pifr;
 	char *slot_name, *dev_name;
 	int r, devind;
 	static int first = TRUE;
@@ -138,26 +148,21 @@ root_pci(void)
 		bcr = pci_attr_r8(devind, PCI_BCR);
 		scr = pci_attr_r8(devind, PCI_SCR);
 		pifr = pci_attr_r8(devind, PCI_PIFR);
-		rev = pci_attr_r8(devind, PCI_REV);
-		subvid = pci_attr_r16(devind, PCI_SUBVID);
-		subdid = pci_attr_r16(devind, PCI_SUBDID);
 
-		buf_printf("%s %x/%x/%x/%x %04X:%04X:%04X:%04X %s\n",
-		    slot_name ? slot_name : "-1.-1.-1.-1",
-		    bcr, scr, pifr, rev,
-		    vid, did, subvid, subdid,
-		    dev_name ? dev_name : "");
+		buf_printf("%s %x/%x/%x %04X:%04X %s\n",
+			slot_name ? slot_name : "-",
+			bcr, scr, pifr, vid, did,
+			dev_name ? dev_name : "");
 
 		r = pci_next_dev(&devind, &vid, &did);
 	}
 }
 #endif /* defined(__i386__) */
 
-/*
- * Print a list of drivers that have been assigned major device numbers.
- */
-static void
-root_dmap(void)
+/*===========================================================================*
+ *				root_dmap				     *
+ *===========================================================================*/
+static void root_dmap(void)
 {
 	struct dmap dmap[NR_DEVICES];
 	int i;
@@ -170,33 +175,30 @@ root_dmap(void)
 			continue;
 
 		buf_printf("%u %s %u\n", i, dmap[i].dmap_label,
-		    dmap[i].dmap_driver);
+			dmap[i].dmap_driver);
 	}
 }
 
-/*
- * Print a list of IPC vectors with their addresses.
- */
-static void
-root_ipcvecs(void)
+/*===========================================================================*
+ *				root_ipcvecs				     *
+ *===========================================================================*/
+static void root_ipcvecs(void)
 {
+	extern struct minix_kerninfo *_minix_kerninfo;
 	extern struct minix_ipcvecs _minix_ipcvecs;
 
-	/*
-	 * Only print this if the kernel provides the info; otherwise binaries
-	 * will be using their own in-libc vectors that are normal symbols in
-	 * the binary.
+	/* only print this if the kernel provides the info; otherwise binaries
+	 * will be using their own in-libc vectors that are normal symbols in the
+	 * binary.
 	 */
-	if (!(get_minix_kerninfo()->ki_flags & MINIX_KIF_IPCVECS))
+	if(!_minix_kerninfo || !(_minix_kerninfo->ki_flags & MINIX_KIF_IPCVECS))
 		return;
 
-	/*
-	 * Print the vectors with an descriptive name and the additional (k)
+	/* print the vectors with an descriptive name and the additional (k)
 	 * to distinguish them from regular symbols.
 	 */
 #define PRINT_ENTRYPOINT(name) \
-	buf_printf("%08lx T %s(k)\n", \
-	    (unsigned long)_minix_ipcvecs.name, #name)
+	buf_printf("%08lx T %s(k)\n", _minix_ipcvecs.name, #name)
 
 	PRINT_ENTRYPOINT(sendrec);
 	PRINT_ENTRYPOINT(send);
@@ -207,9 +209,9 @@ root_ipcvecs(void)
 	PRINT_ENTRYPOINT(do_kernel_call);
 }
 
-/*
- * Print the list of mounted file systems.
- */
+/*===========================================================================*
+ *				root_mounts				     *
+ *===========================================================================*/
 static void
 root_mounts(void)
 {
@@ -221,7 +223,7 @@ root_mounts(void)
 
 	for (i = 0; i < count; i++) {
 		buf_printf("%s on %s type %s (%s)\n", buf[i].f_mntfromname,
-		    buf[i].f_mntonname, buf[i].f_fstypename,
-		    (buf[i].f_flag & ST_RDONLY) ? "ro" : "rw");
-	}
+			buf[i].f_mntonname, buf[i].f_fstypename,
+			(buf[i].f_flag & ST_RDONLY) ? "ro" : "rw");
+        }
 }

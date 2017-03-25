@@ -1,4 +1,5 @@
 PROG=	pr_routes
-MAN=	pr_routes.8
+BINMODE= 4755
+MAN=
 
 .include <bsd.prog.mk>

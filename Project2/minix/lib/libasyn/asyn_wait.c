@@ -1,10 +1,11 @@
 /*	asyn_wait() - wait for asynch operations	Author: Kees J. Bot
  *								7 Jul 1997
  */
+#define DEBUG 0
 
 #include "asyn.h"
 #include <time.h>
-#ifdef DEBUG
+#if DEBUG
 #include <stdio.h>
 #endif
 
@@ -56,7 +57,7 @@ int asyn_wait(asynchio_t *asyn, int flags, struct timeval *to)
 		t.tv_usec= 0;
 	}
 
-#ifdef DEBUG
+#if DEBUG
 	{
 		int op;
 
@@ -79,7 +80,7 @@ int asyn_wait(asynchio_t *asyn, int flags, struct timeval *to)
 	r= select(FD_SETSIZE, &asyn->asyn_fdset[SEL_READ],
 				&asyn->asyn_fdset[SEL_WRITE],
 				&asyn->asyn_fdset[SEL_EXCEPT], to);
-#ifdef DEBUG
+#if DEBUG
 	fprintf(stderr, " (%d) ", r);
 #endif
 	if (r > 0) {
@@ -94,7 +95,7 @@ int asyn_wait(asynchio_t *asyn, int flags, struct timeval *to)
 				if (FD_ISSET(fd, fdsetp)) {
 					asyn->asyn_afd[fd].afd_state[op]=
 								PENDING;
-#ifdef DEBUG
+#if DEBUG
 					fprintf(stderr, "%d%c", fd, "rwx"[op]);
 #endif
 				}
@@ -106,7 +107,7 @@ int asyn_wait(asynchio_t *asyn, int flags, struct timeval *to)
 		/* If nothing happened then let the time boundary slip a bit. */
 		if (tbound < TBOUND_MAX) tbound <<= 1;
 	}
-#ifdef DEBUG
+#if DEBUG
 	fputc('\n', stderr);
 #endif
 

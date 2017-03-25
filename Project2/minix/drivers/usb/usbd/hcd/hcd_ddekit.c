@@ -254,8 +254,8 @@ ddekit_usb_init(struct ddekit_usb_driver * drv,
 	connect_cb	= drv->connect;
 	disconnect_cb	= drv->disconnect;
 
-	*_m		= (ddekit_usb_malloc_fn) malloc;
-	*_f		= (ddekit_usb_free_fn) free;
+	*_m		= malloc;
+	*_f		= free;
 
 	return EXIT_SUCCESS;
 }

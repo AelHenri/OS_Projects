@@ -1,5 +1,5 @@
 SCRIPTS= setup.sh
 BINDIR= /bin
-MAN= setup.8
+MAN=
 
 .include <bsd.prog.mk>

@@ -58,7 +58,7 @@ static int bdev_retry(int *driver_tries, int *transfer_tries, int *result)
   return FALSE;
 }
 
-static int bdev_opcl(int req, dev_t dev, int bits)
+static int bdev_opcl(int req, dev_t dev, int access)
 {
 /* Open or close the given minor device.
  */
@@ -69,7 +69,7 @@ static int bdev_opcl(int req, dev_t dev, int bits)
 	memset(&m, 0, sizeof(m));
 	m.m_type = req;
 	m.m_lbdev_lblockdriver_msg.minor = minor(dev);
-	m.m_lbdev_lblockdriver_msg.access = bits;
+	m.m_lbdev_lblockdriver_msg.access = access;
 
 	r = bdev_sendrec(dev, &m);
   } while (bdev_retry(&driver_tries, NULL, &r));
@@ -77,17 +77,17 @@ static int bdev_opcl(int req, dev_t dev, int bits)
   return r;
 }
 
-int bdev_open(dev_t dev, int bits)
+int bdev_open(dev_t dev, int access)
 {
 /* Open the given minor device.
  * File system usage note: typically called from mount, after bdev_driver.
  */
   int r;
 
-  r = bdev_opcl(BDEV_OPEN, dev, bits);
+  r = bdev_opcl(BDEV_OPEN, dev, access);
 
   if (r == OK)
-	bdev_minor_add(dev, bits);
+	bdev_minor_add(dev, access);
 
   return r;
 }
@@ -116,16 +116,16 @@ static int bdev_rdwt_setup(int req, dev_t dev, u64_t pos, char *buf,
  */
   endpoint_t endpt;
   cp_grant_id_t grant;
-  int perm;
+  int access;
 
   assert((ssize_t) count >= 0);
 
   if ((endpt = bdev_driver_get(dev)) == NONE)
 	return EDEADSRCDST;
 
-  perm = (req == BDEV_READ) ? CPF_WRITE : CPF_READ;
+  access = (req == BDEV_READ) ? CPF_WRITE : CPF_READ;
 
-  grant = cpf_grant_direct(endpt, (vir_bytes) buf, count, perm);
+  grant = cpf_grant_direct(endpt, (vir_bytes) buf, count, access);
 
   if (!GRANT_VALID(grant)) {
 	printf("bdev: unable to allocate grant!\n");
@@ -179,19 +179,19 @@ static int bdev_vrdwt_setup(int req, dev_t dev, u64_t pos, iovec_t *vec,
   ssize_t size;
   endpoint_t endpt;
   cp_grant_id_t grant;
-  int i, perm;
+  int i, access;
 
   assert(count <= NR_IOREQS);
 
   if ((endpt = bdev_driver_get(dev)) == NONE)
 	return EDEADSRCDST;
 
-  perm = (req == BDEV_GATHER) ? CPF_WRITE : CPF_READ;
+  access = (req == BDEV_GATHER) ? CPF_WRITE : CPF_READ;
   size = 0;
 
   for (i = 0; i < count; i++) {
 	grant = cpf_grant_direct(endpt, vec[i].iov_addr, vec[i].iov_size,
-		perm);
+		access);
 
 	if (!GRANT_VALID(grant)) {
 		printf("bdev: unable to allocate grant!\n");
@@ -303,7 +303,7 @@ ssize_t bdev_scatter(dev_t dev, u64_t pos, iovec_t *vec, int count, int flags)
   return bdev_vrdwt(BDEV_SCATTER, dev, pos, vec, count, flags);
 }
 
-static int bdev_ioctl_setup(dev_t dev, unsigned long request, void *buf,
+static int bdev_ioctl_setup(dev_t dev, int request, void *buf,
   endpoint_t user_endpt, message *m)
 {
 /* Set up an I/O control request.
@@ -311,7 +311,7 @@ static int bdev_ioctl_setup(dev_t dev, unsigned long request, void *buf,
   endpoint_t endpt;
   size_t size;
   cp_grant_id_t grant;
-  int perm;
+  int access;
 
   if ((endpt = bdev_driver_get(dev)) == NONE)
 	return EDEADSRCDST;
@@ -321,12 +321,12 @@ static int bdev_ioctl_setup(dev_t dev, unsigned long request, void *buf,
   else
 	size = _MINIX_IOCTL_SIZE(request);
 
-  perm = 0;
-  if (_MINIX_IOCTL_IOR(request)) perm |= CPF_WRITE;
-  if (_MINIX_IOCTL_IOW(request)) perm |= CPF_READ;
+  access = 0;
+  if (_MINIX_IOCTL_IOR(request)) access |= CPF_WRITE;
+  if (_MINIX_IOCTL_IOW(request)) access |= CPF_READ;
 
   /* The size may be 0, in which case 'buf' need not be a valid pointer. */
-  grant = cpf_grant_direct(endpt, (vir_bytes) buf, size, perm);
+  grant = cpf_grant_direct(endpt, (vir_bytes) buf, size, access);
 
   if (!GRANT_VALID(grant)) {
 	printf("bdev: unable to allocate grant!\n");
@@ -351,8 +351,7 @@ static void bdev_ioctl_cleanup(const message *m)
   cpf_revoke(m->m_lbdev_lblockdriver_msg.grant);
 }
 
-int bdev_ioctl(dev_t dev, unsigned long request, void *buf,
-  endpoint_t user_endpt)
+int bdev_ioctl(dev_t dev, int request, void *buf, endpoint_t user_endpt)
 {
 /* Perform a synchronous I/O control request.
  */
@@ -496,7 +495,7 @@ bdev_id_t bdev_scatter_asyn(dev_t dev, u64_t pos, iovec_t *vec, int count,
 	param);
 }
 
-bdev_id_t bdev_ioctl_asyn(dev_t dev, unsigned long request, void *buf,
+bdev_id_t bdev_ioctl_asyn(dev_t dev, int request, void *buf,
 	endpoint_t user_endpt, bdev_callback_t callback, bdev_param_t param)
 {
 /* Perform an asynchronous I/O control request.

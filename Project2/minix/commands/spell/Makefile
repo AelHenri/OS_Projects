@@ -1,4 +1,4 @@
 SCRIPTS= spell.sh
-MAN= spell.1
+MAN=
 
 .include <bsd.prog.mk>

@@ -5,6 +5,7 @@
 
 #define _MINIX_SYSTEM
 
+#include <minix/libminixfs.h>
 #include <minix/sysutil.h>
 #include <minix/syslib.h>
 #include <minix/vm.h>
@@ -20,7 +21,6 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <math.h>
-#include <minix/libminixfs.h>
 
 int max_error = 0;
 
@@ -41,11 +41,10 @@ int
 dowriteblock(int b, int blocksize, u32_t seed, char *data)
 {
 	struct buf *bp;
-	int r;
 
 	assert(blocksize == curblocksize);
 
-	if ((r = lmfs_get_block(&bp, MYDEV, b, NORMAL)) != 0) {
+	if(!(bp = lmfs_get_block(MYDEV, b, NORMAL))) {
 		e(30);
 		return 0;
 	}
@@ -54,7 +53,7 @@ dowriteblock(int b, int blocksize, u32_t seed, char *data)
 
 	lmfs_markdirty(bp);
 
-	lmfs_put_block(bp);
+	lmfs_put_block(bp, FULL_DATA_BLOCK);
 
 	return blocksize;
 }
@@ -63,18 +62,17 @@ int
 readblock(int b, int blocksize, u32_t seed, char *data)
 {
 	struct buf *bp;
-	int r;
 
 	assert(blocksize == curblocksize);
 
-	if ((r = lmfs_get_block(&bp, MYDEV, b, NORMAL)) != 0) {
+	if(!(bp = lmfs_get_block(MYDEV, b, NORMAL))) {
 		e(30);
 		return 0;
 	}
 
 	memcpy(data, bp->data, blocksize);
 
-	lmfs_put_block(bp);
+	lmfs_put_block(bp, FULL_DATA_BLOCK);
 
 	return blocksize;
 }
@@ -92,6 +90,18 @@ void testend(void)
 
 /* Fake some libminixfs client functions */
 
+int
+fs_sync(void)
+{
+	return 0;
+}
+
+void
+fs_blockstats(u64_t *total, u64_t *free, u64_t *used)
+{
+	*total = *free = *used = 0;
+}
+
 static void allocate(int b)
 {
 	assert(curblocksize > 0);
@@ -106,27 +116,35 @@ static void allocate(int b)
 ssize_t
 bdev_gather(dev_t dev, u64_t pos, iovec_t *vec, int count, int flags)
 {
-	int i, block;
-	size_t size, block_off;
+	int i;
 	ssize_t tot = 0;
 	assert(dev == MYDEV);
 	assert(curblocksize > 0);
 	assert(!(pos % curblocksize));
 	for(i = 0; i < count; i++) {
+		int subpages, block, block_off;
 		char *data = (char *) vec[i].iov_addr;
+		assert(!(pos % curblocksize));
 		block = pos / curblocksize;
-		block_off = (size_t)(pos % curblocksize);
-		size = vec[i].iov_size;
-		assert(size == PAGE_SIZE);
-		assert(block >= 0);
-		assert(block < MAXBLOCKS);
-		assert(block_off + size <= curblocksize);
-		if(!writtenblocks[block]) {
-			allocate(block);
+		block_off = pos % curblocksize;
+		assert(!(vec[i].iov_size % PAGE_SIZE));
+		subpages = vec[i].iov_size / PAGE_SIZE;
+		while(subpages > 0) {
+			assert(block >= 0);
+			assert(block < MAXBLOCKS);
+			assert(block_off >= 0);
+			assert(block_off < curblocksize);
+			if(!writtenblocks[block]) {
+				allocate(block);
+			}
+			memcpy(data, writtenblocks[block] + block_off,
+				PAGE_SIZE);
+			block++;
+			subpages--;
+			data += PAGE_SIZE;
+			tot += PAGE_SIZE;
+			block_off += PAGE_SIZE;
 		}
-		memcpy(data, writtenblocks[block] + block_off, size);
-		pos += size;
-		tot += size;
 	}
 
 	return tot;
@@ -136,26 +154,29 @@ ssize_t
 bdev_scatter(dev_t dev, u64_t pos, iovec_t *vec, int count, int flags)
 {
 	int i, block;
-	size_t size, block_off;
 	ssize_t tot = 0;
 	assert(dev == MYDEV);
 	assert(curblocksize > 0);
 	assert(!(pos % curblocksize));
+	block = pos / curblocksize;
 	for(i = 0; i < count; i++) {
+		int subblocks;
 		char *data = (char *) vec[i].iov_addr;
-		block = pos / curblocksize;
-		block_off = (size_t)(pos % curblocksize);
-		size = vec[i].iov_size;
-		assert(size == PAGE_SIZE);
-		assert(block >= 0);
-		assert(block < MAXBLOCKS);
-		assert(block_off + size <= curblocksize);
-		if(!writtenblocks[block]) {
-			allocate(block);
+		assert(vec[i].iov_size > 0);
+		assert(!(vec[i].iov_size % PAGE_SIZE));
+		subblocks = vec[i].iov_size / curblocksize;
+		while(subblocks > 0) {
+			assert(block >= 0);
+			assert(block < MAXBLOCKS);
+			if(!writtenblocks[block]) {
+				allocate(block);
+			}
+			memcpy(writtenblocks[block], data, curblocksize);
+			block++;
+			subblocks--;
+			data += curblocksize;
+			tot += curblocksize;
 		}
-		memcpy(writtenblocks[block] + block_off, data, size);
-		pos += size;
-		tot += size;
 	}
 
 	return tot;
@@ -165,23 +186,31 @@ ssize_t
 bdev_read(dev_t dev, u64_t pos, char *data, size_t count, int flags)
 {
 	int block;
+	ssize_t tot = 0;
+	int subblocks;
 
 	assert(dev == MYDEV);
 	assert(curblocksize > 0);
 	assert(!(pos % curblocksize));
 	assert(count > 0);
 	assert(!(count % curblocksize));
-	assert(count == PAGE_SIZE);
-	assert(curblocksize == PAGE_SIZE);
 
 	block = pos / curblocksize;
-	assert(block >= 0);
-	assert(block < MAXBLOCKS);
-	if(!writtenblocks[block]) {
-		allocate(block);
+	subblocks = count / curblocksize;
+	while(subblocks > 0) {
+		assert(block >= 0);
+		assert(block < MAXBLOCKS);
+		if(!writtenblocks[block]) {
+			allocate(block);
+		}
+		memcpy(data, writtenblocks[block], curblocksize);
+		block++;
+		subblocks--;
+		data += curblocksize;
+		tot += curblocksize;
 	}
-	memcpy(data, writtenblocks[block], curblocksize);
-	return count;
+
+	return tot;
 }
 
 /* Fake some libsys functions */
@@ -226,7 +255,7 @@ u32_t sqrt_approx(u32_t v)
 }
 
 int vm_set_cacheblock(void *block, dev_t dev, off_t dev_offset,
-        ino_t ino, off_t ino_offset, u32_t *flags, int blocksize, int setflags)
+        ino_t ino, off_t ino_offset, u32_t *flags, int blocksize)
 {
 	return ENOSYS;
 }
@@ -237,11 +266,6 @@ void *vm_map_cacheblock(dev_t dev, off_t dev_offset,
 	return MAP_FAILED;
 }
 
-int vm_forget_cacheblock(dev_t dev, off_t dev_offset, int blocksize)
-{
-	return 0;
-}
-
 int vm_clear_cache(dev_t dev)
 {
 	return 0;
@@ -250,7 +274,6 @@ int vm_clear_cache(dev_t dev)
 int
 main(int argc, char *argv[])
 {
-	size_t newblocksize;
 	int wss, cs, n = 0, p;
 
 #define ITER 3
@@ -263,10 +286,8 @@ main(int argc, char *argv[])
 	/* Can the cache handle differently sized blocks? */
 
 	for(p = 1; p <= 3; p++) {
-		/* Do not update curblocksize until the cache is flushed. */
-		newblocksize = PAGE_SIZE*p;
-		lmfs_set_blocksize(newblocksize);
-		curblocksize = newblocksize;	/* now it's safe to update */
+		curblocksize = PAGE_SIZE*p;
+		lmfs_set_blocksize(curblocksize, MYMAJOR);
 		lmfs_buf_pool(BLOCKS);
 		if(dotest(curblocksize, BLOCKS, ITER)) e(n);
 		n++;
@@ -278,8 +299,8 @@ main(int argc, char *argv[])
 	for(wss = 2; wss <= 3; wss++) {
 		int wsblocks = 10*wss*wss*wss*wss*wss;
 		for(cs = wsblocks/4; cs <= wsblocks*3; cs *= 1.5) {
-			lmfs_set_blocksize(PAGE_SIZE);
-			curblocksize = PAGE_SIZE;	/* same as above */
+			curblocksize = PAGE_SIZE;
+			lmfs_set_blocksize(curblocksize, MYMAJOR);
 			lmfs_buf_pool(cs);
 		        if(dotest(curblocksize, wsblocks, ITER)) e(n);
 			n++;

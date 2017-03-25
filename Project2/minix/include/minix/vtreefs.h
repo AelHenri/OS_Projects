@@ -7,9 +7,8 @@ typedef void *cbdata_t;
 
 #define NO_INDEX	((index_t) -1)
 
-/* Maximum file name length, excluding terminating null character, for which
- * the name will be allocated statically. Longer names will be allocated
- * dynamically, and should not be used for system-critical file systems.
+/* Maximum file name length, excluding terminating null character. It is set
+ * to a low value to limit memory usage, but can be changed to any value.
  */
 #define PNAME_MAX	24
 
@@ -26,49 +25,33 @@ struct fs_hooks {
 	void (*cleanup_hook)(void);
 	int (*lookup_hook)(struct inode *inode, char *name, cbdata_t cbdata);
 	int (*getdents_hook)(struct inode *inode, cbdata_t cbdata);
-	ssize_t (*read_hook)(struct inode *inode, char *ptr, size_t len,
-	    off_t off, cbdata_t cbdata);
-	ssize_t (*write_hook)(struct inode *inode, char *ptr, size_t max,
-	    off_t off, cbdata_t cbdata);
-	int (*trunc_hook)(struct inode *inode, off_t offset, cbdata_t cbdata);
-	int (*mknod_hook)(struct inode *inode, char *name,
-	    struct inode_stat *stat, cbdata_t cbdata);
-	int (*unlink_hook)(struct inode *inode, cbdata_t cbdata);
-	int (*slink_hook)(struct inode *inode, char *name,
-	    struct inode_stat *stat, char *path, cbdata_t cbdata);
+	int (*read_hook)(struct inode *inode, off_t offset, char **ptr,
+		size_t *len, cbdata_t cbdata);
 	int (*rdlink_hook)(struct inode *inode, char *ptr, size_t max,
-	    cbdata_t cbdata);
-	int (*chstat_hook)(struct inode *inode, struct inode_stat *stat,
-	    cbdata_t cbdata);
-	void (*message_hook)(message *m, int ipc_status);
+		cbdata_t cbdata);
+	int (*message_hook)(message *m);
 };
 
-extern struct inode *add_inode(struct inode *parent, const char *name,
-	index_t index, const struct inode_stat *stat,
-	index_t nr_indexed_slots, cbdata_t cbdata);
+extern struct inode *add_inode(struct inode *parent, char *name, index_t index,
+	struct inode_stat *stat, index_t nr_indexed_entries, cbdata_t cbdata);
 extern void delete_inode(struct inode *inode);
 
-extern struct inode *get_inode_by_name(const struct inode *parent,
-	const char *name);
-extern struct inode *get_inode_by_index(const struct inode *parent,
-	index_t index);
+extern struct inode *get_inode_by_name(struct inode *parent, char *name);
+extern struct inode *get_inode_by_index(struct inode *parent, index_t index);
 
-extern const char *get_inode_name(const struct inode *inode);
-extern index_t get_inode_index(const struct inode *inode);
-extern index_t get_inode_slots(const struct inode *inode);
-extern cbdata_t get_inode_cbdata(const struct inode *inode);
-extern void *get_inode_extra(const struct inode *inode);
+extern char const *get_inode_name(struct inode *inode);
+extern index_t get_inode_index(struct inode *inode);
+extern cbdata_t get_inode_cbdata(struct inode *inode);
 
 extern struct inode *get_root_inode(void);
-extern struct inode *get_parent_inode(const struct inode *inode);
-extern struct inode *get_first_inode(const struct inode *parent);
-extern struct inode *get_next_inode(const struct inode *previous);
+extern struct inode *get_parent_inode(struct inode *inode);
+extern struct inode *get_first_inode(struct inode *parent);
+extern struct inode *get_next_inode(struct inode *previous);
 
-extern void get_inode_stat(const struct inode *inode, struct inode_stat *stat);
+extern void get_inode_stat(struct inode *inode, struct inode_stat *stat);
 extern void set_inode_stat(struct inode *inode, struct inode_stat *stat);
 
-extern void run_vtreefs(struct fs_hooks *hooks, unsigned int nr_inodes,
-	size_t inode_extra, struct inode_stat *stat, index_t nr_indexed_slots,
-	size_t buf_size);
+extern void start_vtreefs(struct fs_hooks *hooks, unsigned int nr_inodes,
+	struct inode_stat *stat, index_t nr_indexed_entries);
 
 #endif /* _MINIX_VTREEFS_H */

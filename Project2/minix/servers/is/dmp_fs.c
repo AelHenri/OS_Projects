@@ -1,8 +1,8 @@
 /* This file contains procedures to dump to FS' data structures.
  *
  * The entry points into this file are
- *   dtab_dump:   	display device <-> driver mappings
- *   fproc_dump:   	display FS process table
+ *   dtab_dump:   	display device <-> driver mappings	  
+ *   fproc_dump:   	display FS process table	  
  *
  * Created:
  *   Oct 01, 2004:	by Jorrit N. Herder
@@ -21,8 +21,7 @@ struct dmap dmap[NR_DEVICES];
 /*===========================================================================*
  *				fproc_dmp				     *
  *===========================================================================*/
-void
-fproc_dmp(void)
+void fproc_dmp()
 {
   struct fproc *fp;
   int i, j, nfds, n=0;
@@ -49,8 +48,8 @@ fproc_dmp(void)
 		!!(fp->fp_flags & FP_SESLDR), nfds,
 		fp->fp_blocked_on, !!(fp->fp_flags & FP_REVIVED)
 	);
-	if (fp->fp_blocked_on == FP_BLOCKED_ON_CDEV)
-		printf("%4d\n", fp->fp_cdev.endpt);
+	if (fp->fp_blocked_on == FP_BLOCKED_ON_OTHER)
+		printf("%4d\n", fp->fp_task);
 	else
 		printf(" nil\n");
   }
@@ -62,8 +61,7 @@ fproc_dmp(void)
 /*===========================================================================*
  *				dtab_dmp				     *
  *===========================================================================*/
-void
-dtab_dmp(void)
+void dtab_dmp()
 {
     int i;
 
@@ -71,7 +69,7 @@ dtab_dmp(void)
         printf("Error obtaining table from VFS. Perhaps recompile IS?\n");
         return;
     }
-
+    
     printf("File System (FS) device <-> driver mappings\n");
     printf("    Label     Major Driver ept\n");
     printf("------------- ----- ----------\n");

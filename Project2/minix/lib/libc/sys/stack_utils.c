@@ -12,8 +12,11 @@
 #include <unistd.h>
 #include <string.h>
 #include <stddef.h>
+#include <minix/param.h>
 #include <sys/exec_elf.h>
 #include <sys/exec.h>
+
+extern struct minix_kerninfo *_minix_kerninfo;
 
 /* Create a stack image that only needs to be patched up slightly by
  * the kernel to be used for the process to be executed.
@@ -130,7 +133,7 @@ void minix_stack_fill(const char *path, int argc, char * const *argv,
 	size_t const min_size = STACK_MIN_SZ;
 
 	/* Virtual address of the stack pointer, in new memory space. */
-	*vsp = minix_get_user_sp() - stack_size;
+	*vsp = _minix_kerninfo->kinfo->user_sp - stack_size;
 
 	/* Fill in the frame now. */
 	fpw = (char **) frame;

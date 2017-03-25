@@ -3,14 +3,16 @@
  */
 
 #include "fs.h"
+#include <assert.h>
+#include <minix/vfsif.h>
+#include <minix/bdev.h>
 #include "inode.h"
 #include "super.h"
-#include <assert.h>
 
 /*===========================================================================*
  *				fs_sync					     *
  *===========================================================================*/
-void fs_sync(void)
+int fs_sync()
 {
 /* Perform the sync() system call.  Flush all the tables.
  * The order in which the various tables are flushed is critical.  The
@@ -19,8 +21,10 @@ void fs_sync(void)
  */
   struct inode *rip;
 
+  assert(lmfs_nr_bufs() > 0);
+
   if (superblock->s_rd_only)
-	return; /* nothing to sync */
+	return(OK); /* nothing to sync */
 
   /* Write all the dirty inodes to the disk. */
   for(rip = &inode[0]; rip < &inode[NR_INODES]; rip++)
@@ -29,7 +33,66 @@ void fs_sync(void)
   lmfs_flushall();
 
   if (superblock->s_dev != NO_DEV) {
-	superblock->s_wtime = clock_time(NULL);
+	superblock->s_wtime = clock_time();
 	write_super(superblock);
   }
+
+  return(OK);		/* sync() can't fail */
 }
+
+
+/*===========================================================================*
+ *				fs_flush				     *
+ *===========================================================================*/
+int fs_flush()
+{
+/* Flush the blocks of a device from the cache after writing any dirty blocks
+ * to disk.
+ */
+  dev_t dev = fs_m_in.m_vfs_fs_flush.device;
+
+  if(dev == fs_dev) return(EBUSY);
+
+  lmfs_flushall();
+  lmfs_invalidate(dev);
+
+  return(OK);
+}
+
+/*===========================================================================*
+ *				fs_new_driver				     *
+ *===========================================================================*/
+int fs_new_driver(void)
+{
+/* Set a new driver endpoint for this device. */
+  dev_t dev;
+  cp_grant_id_t label_gid;
+  size_t label_len;
+  char label[sizeof(fs_dev_label)];
+  int r;
+
+  dev = fs_m_in.m_vfs_fs_new_driver.device;
+  label_gid = fs_m_in.m_vfs_fs_new_driver.grant;
+  label_len = fs_m_in.m_vfs_fs_new_driver.path_len;
+
+  if (label_len > sizeof(label))
+	return(EINVAL);
+
+  r = sys_safecopyfrom(fs_m_in.m_source, label_gid, (vir_bytes) 0,
+	(vir_bytes) label, label_len);
+
+  if (r != OK) {
+	printf("ext2: fs_new_driver safecopyfrom failed (%d)\n", r);
+	return(EINVAL);
+  }
+
+  bdev_driver(dev, label);
+
+  return(OK);
+}
+
+int fs_bpeek(void)      
+{
+	return lmfs_do_bpeek(&fs_m_in);
+}
+

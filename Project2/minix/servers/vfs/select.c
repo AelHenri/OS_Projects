@@ -32,16 +32,12 @@
 #define FROM_PROC 0
 #define TO_PROC   1
 
-#define USECPERSEC 1000000	/* number of microseconds in a second */
-
-typedef fd_set *ixfer_fd_set_ptr;
-
 static struct selectentry {
   struct fproc *requestor;	/* slot is free iff this is NULL */
   endpoint_t req_endpt;
   fd_set readfds, writefds, errorfds;
   fd_set ready_readfds, ready_writefds, ready_errorfds;
-  ixfer_fd_set_ptr vir_readfds, vir_writefds, vir_errorfds;
+  fd_set *vir_readfds, *vir_writefds, *vir_errorfds;
   struct filp *filps[OPEN_MAX];
   int type[OPEN_MAX];
   int nfds, nreadyfds;
@@ -73,7 +69,6 @@ static void select_return(struct selectentry *);
 static void select_restart_filps(void);
 static int tab2ops(int fd, struct selectentry *e);
 static void wipe_select(struct selectentry *s);
-void select_timeout_check(int s);
 
 static struct fdtype {
 	int (*select_request)(struct filp *, int *ops, int block,
@@ -99,13 +94,12 @@ int do_select(void)
  * timeout and wait for either the file descriptors to become ready or the
  * timer to go off. If no timeout value was provided, we wait indefinitely.
  */
-  int r, nfds, do_timeout, fd, s;
+  int r, nfds, do_timeout = 0, fd, s;
   struct filp *f;
   unsigned int type, ops;
   struct timeval timeout;
   struct selectentry *se;
   vir_bytes vtimeout;
-  clock_t ticks;
 
   nfds = job_m_in.m_lc_vfs_select.nfds;
   vtimeout = job_m_in.m_lc_vfs_select.timeout;
@@ -135,21 +129,20 @@ int do_select(void)
 
   /* Did the process set a timeout value? If so, retrieve it. */
   if (vtimeout != 0) {
+	do_timeout = 1;
 	r = sys_datacopy_wrapper(who_e, vtimeout, SELF, (vir_bytes) &timeout,
 		sizeof(timeout));
-
-	/* No nonsense in the timeval */
-	if (r == OK && (timeout.tv_sec < 0 || timeout.tv_usec < 0 ||
-	    timeout.tv_usec >= USECPERSEC))
-		r = EINVAL;
-
 	if (r != OK) {
 		se->requestor = NULL;
 		return(r);
 	}
-	do_timeout = 1;
-  } else
-	do_timeout = 0;
+  }
+
+  /* No nonsense in the timeval */
+  if (do_timeout && (timeout.tv_sec < 0 || timeout.tv_usec < 0)) {
+	se->requestor = NULL;
+	return(EINVAL);
+  }
 
   /* If there is no timeout, we block forever. Otherwise, we block up to the
    * specified time interval.
@@ -287,20 +280,22 @@ int do_select(void)
   /* Convert timeval to ticks and set the timer. If it fails, undo
    * all, return error.
    */
-  if (do_timeout && se->block) {
+  if (do_timeout) {
+	int ticks;
 	/* Open Group:
 	 * "If the requested timeout interval requires a finer
 	 * granularity than the implementation supports, the
 	 * actual timeout interval shall be rounded up to the next
 	 * supported value."
 	 */
-	if (timeout.tv_sec >= (TMRDIFF_MAX - 1) / system_hz) {
-		ticks = TMRDIFF_MAX; /* silently truncate */
-	} else {
-		ticks = timeout.tv_sec * system_hz +
-		    (timeout.tv_usec * system_hz + USECPERSEC-1) / USECPERSEC;
+#define USECPERSEC 1000000
+	while(timeout.tv_usec >= USECPERSEC) {
+		/* this is to avoid overflow with *system_hz below */
+		timeout.tv_usec -= USECPERSEC;
+		timeout.tv_sec++;
 	}
-	assert(ticks != 0 && ticks <= TMRDIFF_MAX);
+	ticks = timeout.tv_sec * system_hz +
+		(timeout.tv_usec * system_hz + USECPERSEC-1) / USECPERSEC;
 	se->expiry = ticks;
 	set_timer(&se->timer, ticks, select_timeout_check, s);
   }
@@ -412,27 +407,20 @@ static int select_request_char(struct filp *f, int *ops, int block,
   /* By default, nothing to do */
   *ops = 0;
 
-  /*
-   * If we have previously asked the driver to notify us about certain ready
-   * operations, but it has not notified us yet, then we can safely assume that
-   * those operations are not ready right now.  Therefore, if this call is not
-   * supposed to block, we can disregard the pending operations as not ready.
-   * We must make absolutely sure that the flags are "stable" right now though:
-   * we are neither waiting to query the driver about them (FSF_UPDATE) nor
-   * querying the driver about them right now (FSF_BUSY).  This is a dangerous
-   * case of premature optimization and may be removed altogether if it proves
-   * to continue to be a source of bugs.
-   */
-  if (!block && !(f->filp_select_flags & (FSF_UPDATE | FSF_BUSY)) &&
-      (f->filp_select_flags & FSF_BLOCKED)) {
-	if ((rops & SEL_RD) && (f->filp_select_flags & FSF_RD_BLOCK))
-		rops &= ~SEL_RD;
-	if ((rops & SEL_WR) && (f->filp_select_flags & FSF_WR_BLOCK))
-		rops &= ~SEL_WR;
-	if ((rops & SEL_ERR) && (f->filp_select_flags & FSF_ERR_BLOCK))
-		rops &= ~SEL_ERR;
-	if (!(rops & (SEL_RD|SEL_WR|SEL_ERR)))
-		return(OK);
+  if (!block && (f->filp_select_flags & FSF_BLOCKED)) {
+	/* This filp is blocked waiting for a reply, but we don't want to
+	 * block ourselves. Unless we're awaiting the initial reply, these
+	 * operations won't be ready */
+	if (!(f->filp_select_flags & FSF_BUSY)) {
+		if ((rops & SEL_RD) && (f->filp_select_flags & FSF_RD_BLOCK))
+			rops &= ~SEL_RD;
+		if ((rops & SEL_WR) && (f->filp_select_flags & FSF_WR_BLOCK))
+			rops &= ~SEL_WR;
+		if ((rops & SEL_ERR) && (f->filp_select_flags & FSF_ERR_BLOCK))
+			rops &= ~SEL_ERR;
+		if (!(rops & (SEL_RD|SEL_WR|SEL_ERR)))
+			return(OK);
+	}
   }
 
   f->filp_select_flags |= FSF_UPDATE;
@@ -582,7 +570,7 @@ static int copy_fdsets(struct selectentry *se, int nfds, int direction)
   src_fds = (direction == FROM_PROC) ? se->vir_readfds : &se->ready_readfds;
   dst_fds = (direction == FROM_PROC) ? &se->readfds : se->vir_readfds;
   if (se->vir_readfds) {
-	r = sys_datacopy_wrapper(src_e, (vir_bytes) src_fds, dst_e,
+	r = sys_datacopy_wrapper(src_e, (vir_bytes) src_fds, dst_e, 
 			(vir_bytes) dst_fds, fd_setsize);
 	if (r != OK) return(r);
   }
@@ -591,7 +579,7 @@ static int copy_fdsets(struct selectentry *se, int nfds, int direction)
   src_fds = (direction == FROM_PROC) ? se->vir_writefds : &se->ready_writefds;
   dst_fds = (direction == FROM_PROC) ? &se->writefds : se->vir_writefds;
   if (se->vir_writefds) {
-	r = sys_datacopy_wrapper(src_e, (vir_bytes) src_fds, dst_e,
+	r = sys_datacopy_wrapper(src_e, (vir_bytes) src_fds, dst_e, 
 			(vir_bytes) dst_fds, fd_setsize);
 	if (r != OK) return(r);
   }
@@ -600,7 +588,7 @@ static int copy_fdsets(struct selectentry *se, int nfds, int direction)
   src_fds = (direction == FROM_PROC) ? se->vir_errorfds : &se->ready_errorfds;
   dst_fds = (direction == FROM_PROC) ? &se->errorfds : se->vir_errorfds;
   if (se->vir_errorfds) {
-	r = sys_datacopy_wrapper(src_e, (vir_bytes) src_fds, dst_e,
+	r = sys_datacopy_wrapper(src_e, (vir_bytes) src_fds, dst_e, 
 			(vir_bytes) dst_fds, fd_setsize);
 	if (r != OK) return(r);
   }
@@ -752,23 +740,23 @@ void select_forget(void)
 /*===========================================================================*
  *				select_timeout_check	  	     	     *
  *===========================================================================*/
-void select_timeout_check(int s)
+void select_timeout_check(minix_timer_t *timer)
 {
 /* An alarm has gone off for one of the select queries. This function MUST NOT
  * block its calling thread.
  */
+  int s;
   struct selectentry *se;
 
+  s = tmr_arg(timer)->ta_int;
   if (s < 0 || s >= MAXSELECTS) return;	/* Entry does not exist */
 
   se = &selecttab[s];
   if (se->requestor == NULL) return;
-  if (se->expiry == 0) return;	/* Strange, did we even ask for a timeout? */
+  if (se->expiry <= 0) return;	/* Strange, did we even ask for a timeout? */
   se->expiry = 0;
-  if (!is_deferred(se))
-	select_return(se);
-  else
-	se->block = 0;	/* timer triggered "too soon", treat as nonblocking */
+  if (is_deferred(se)) return;	/* Wait for initial replies to CDEV_SELECT */
+  select_return(se);
 }
 
 
@@ -1034,8 +1022,9 @@ static void select_restart_filps(void)
 /*===========================================================================*
  *				filp_status				     *
  *===========================================================================*/
-static void
-filp_status(struct filp *f, int status)
+static void filp_status(f, status)
+struct filp *f;
+int status;
 {
 /* Tell processes that need to know about the status of this filp. This
  * function MUST NOT block its calling thread.
@@ -1064,8 +1053,8 @@ filp_status(struct filp *f, int status)
 /*===========================================================================*
  *				restart_proc				     *
  *===========================================================================*/
-static void
-restart_proc(struct selectentry *se)
+static void restart_proc(se)
+struct selectentry *se;
 {
 /* Tell process about select results (if any) unless there are still results
  * pending. This function MUST NOT block its calling thread.
@@ -1111,55 +1100,4 @@ static void select_lock_filp(struct filp *f, int ops)
 	locktype = VNODE_WRITE;
 
   lock_filp(f, locktype);
-}
-
-/*
- * Dump the state of the entire select table, for debugging purposes.
- */
-void
-select_dump(void)
-{
-	struct selectentry *se;
-	struct filp *f;
-	struct dmap *dp;
-	dev_t dev;
-	int s, fd;
-
-	for (s = 0; s < MAXSELECTS; s++) {
-		se = &selecttab[s];
-		if (se->requestor == NULL)
-			continue;
-
-		printf("select %d: endpt %d nfds %d nreadyfds %d error %d "
-		    "block %d starting %d expiry %u is_deferred %d\n",
-		    s, se->req_endpt, se->nfds, se->nreadyfds, se->error,
-		    se->block, se->starting, se->expiry, is_deferred(se));
-
-		for (fd = 0; !se->starting && fd < se->nfds; fd++) {
-			/* Save on output: do not print NULL filps at all. */
-			if ((f = se->filps[fd]) == NULL)
-				continue;
-
-			printf("- [%d] filp %p flags %x type ", fd, f,
-			    f->filp_select_flags);
-			if (is_regular_file(f))
-				printf("regular\n");
-			else if (is_pipe(f))
-				printf("pipe\n");
-			else if (is_char_device(f)) {
-				dev = cdev_map(f->filp_vno->v_sdev,
-				    se->requestor);
-				printf("char (dev <%d,%d>, dmap ",
-				    major(dev), minor(dev));
-				if (dev != NO_DEV) {
-					dp = &dmap[major(dev)];
-					printf("busy %d filp %p)\n",
-					    dp->dmap_sel_busy,
-					    dp->dmap_sel_filp);
-				} else
-					printf("unknown)\n");
-			} else
-				printf("unknown\n");
-		}
-	}
 }

@@ -19,6 +19,8 @@ static asynmsg_t msgtable[ASYN_NR];
 static int first_slot = 0, next_slot = 0;
 static int initialized = 0;
 
+#define DEBUG 0
+
 /*===========================================================================*
  *				asynsend3				     *
  *===========================================================================*/
@@ -30,7 +32,7 @@ int fl;
   int i, r, src_ind, dst_ind;
   unsigned flags;
   static int inside = 0;
-  int needack = 0;
+  int len, needack = 0;
 
   /* Debug printf() causes asynchronous sends? */
   if (inside)	/* Panic will not work either then, so exit */
@@ -54,7 +56,7 @@ int fl;
 	if ((flags & (AMF_VALID|AMF_DONE)) == (AMF_VALID|AMF_DONE)) {
 		/* Marked in use by us (VALID) and processed by the kernel */
 		if (msgtable[first_slot].result != OK) {
-#ifdef DEBUG
+#if DEBUG
 			printf("asynsend: found entry %d with error %d\n",
 				first_slot, msgtable[first_slot].result);
 #endif
@@ -92,7 +94,7 @@ int fl;
 			if (msgtable[src_ind].result == OK)
 				continue;
 			else {
-#ifdef DEBUG
+#if DEBUG
 				printf(
 				 "asynsend: found entry %d with error %d\n",
 					src_ind, msgtable[src_ind].result);
@@ -105,7 +107,7 @@ int fl;
 
 
 		/* Copy/move in use entry */
-#ifdef DEBUG
+#if DEBUG
 		printf("asynsend: copying entry %d to %d\n", src_ind, dst_ind);
 #endif
 		if (src_ind != dst_ind) msgtable[dst_ind] = msgtable[src_ind];
@@ -124,31 +126,18 @@ int fl;
   fl |= AMF_VALID;	/* Mark in use */
   msgtable[next_slot].dst = dst;
   msgtable[next_slot].msg = *mp;
-  __insn_barrier();
   msgtable[next_slot].flags = fl;		/* Has to be last. The kernel 
 					 	 * scans this table while we
 						 * are sleeping.
 					 	 */
   next_slot++;
 
-  /* Reload. */
-  inside = 0;
-  r = senda_reload();
-
-  return r;
-}
-
-/*===========================================================================*
- *				senda_reload				     *
- *===========================================================================*/
-int senda_reload()
-{
-  int len;
-
   assert(next_slot >= first_slot);
   len = next_slot - first_slot;
   assert(first_slot + len <= ASYN_NR);
   assert(len >= 0);
+
+  inside = 0;
 
   /* Tell the kernel to rescan the table */
   return ipc_senda(&msgtable[first_slot], len);

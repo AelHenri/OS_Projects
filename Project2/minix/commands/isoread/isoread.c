@@ -374,10 +374,9 @@ char *path;
     dir_ptr = (struct dir_entry *) Hs_Vol_Desc->root_dir_entry;  
 
   /* If we look for the root we already have the right entry */
-  if (path[0] == '/') {
+  if (path[0] == '/')
     if (strlen(path) == 1) return dir_ptr;
     else name_index = 1; /* first name in path */
-  }
 
   /* Keep searching for the path elements until all are found */
   while (!last_in_path)
@@ -412,7 +411,7 @@ char *path;
       while (iso_711(dir_ptr->length) > 0 && offset < BLOCK_SIZE)
       {
         if (iso_cmp(name, dir_ptr,
-            (Read_Dir || !last_in_path)) == 0)
+            (Read_Dir || (!Read_Dir && !last_in_path))) == 0) 
         {
           found = 1;
           break;

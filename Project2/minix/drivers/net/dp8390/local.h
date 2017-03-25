@@ -5,6 +5,7 @@ local.h
 #define ENABLE_WDETH 1
 #define ENABLE_NE2000 1
 #define ENABLE_3C503 1
+#define ENABLE_PCI 1
 
 struct dpeth;
 

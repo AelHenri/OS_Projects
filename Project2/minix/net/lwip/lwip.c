@@ -1,5 +1,6 @@
 #include <unistd.h>
 #include <minix/timers.h>
+#include <sys/svrctl.h>
 #include <minix/ds.h>
 #include <minix/endpoint.h>
 #include <errno.h>
@@ -12,7 +13,6 @@
 #include <minix/sysutil.h>
 #include <minix/timers.h>
 #include <minix/netsock.h>
-#include <minix/rmib.h>
 
 #include "proto.h"
 
@@ -22,6 +22,8 @@
 #include <lwip/netif.h>
 #include <netif/etharp.h>
 #include <lwip/tcp_impl.h>
+
+endpoint_t lwip_ep;
 
 static minix_timer_t tcp_ftmr, tcp_stmr, arp_tmr;
 static int arp_ticks, tcp_fticks, tcp_sticks;
@@ -36,19 +38,19 @@ static void sys_init(void)
 {
 }
 
-static void arp_watchdog(int arg __unused)
+static void arp_watchdog(__unused minix_timer_t *tp)
 {
 	etharp_tmr();
 	set_timer(&arp_tmr, arp_ticks, arp_watchdog, 0);
 }
 
-static void tcp_fwatchdog(int arg __unused)
+static void tcp_fwatchdog(__unused minix_timer_t *tp)
 {
 	tcp_fasttmr();
 	set_timer(&tcp_ftmr, tcp_fticks, tcp_fwatchdog, 0);
 }
 
-static void tcp_swatchdog(int arg __unused)
+static void tcp_swatchdog(__unused minix_timer_t *tp)
 {
 	tcp_slowtmr();
 	set_timer(&tcp_ftmr, tcp_sticks, tcp_swatchdog, 0);
@@ -58,6 +60,13 @@ static int sef_cb_init_fresh(__unused int type, __unused sef_init_info_t *info)
 {
 	int err;
 	unsigned int hz;
+
+	char my_name[16];
+	int my_priv;
+
+	err = sys_whoami(&lwip_ep, my_name, sizeof(my_name), &my_priv);
+	if (err != OK)
+		panic("Cannot get own endpoint");
 
 	nic_init_all();
 	inet_read_conf();
@@ -133,9 +142,6 @@ static int sef_cb_init_fresh(__unused int type, __unused sef_init_info_t *info)
 	 */
 	chardriver_announce();
 
-	/* Register net.route RMIB subtree with the MIB service. */
-	rtinfo_init();
-
 	return(OK);
 }
 
@@ -144,6 +150,8 @@ static void sef_local_startup(void)
 	/* Register init callbacks. */
 	sef_setcb_init_fresh(sef_cb_init_fresh);
 	sef_setcb_init_restart(sef_cb_init_fresh);
+
+	/* No live update support for now. */
 
 	/* Let SEF perform startup. */
 	sef_startup();
@@ -280,9 +288,7 @@ int main(__unused int argc, __unused char ** argv)
 								m.m_source);
 				continue;
 			}
-		} else if (m.m_source == MIB_PROC_NR)
-			rmib_process(&m, ipc_status);
-		else
+		} else
 			/* all other request can be from drivers only */
 			driver_request(&m);
 	}

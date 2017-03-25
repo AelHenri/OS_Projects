@@ -286,7 +286,7 @@ void arch_init(void)
 /*===========================================================================*
  *				do_ser_debug				     * 
  *===========================================================================*/
-void do_ser_debug(void)
+void do_ser_debug()
 {
 	u8_t c, lsr;
 
@@ -371,7 +371,7 @@ static void ser_debug(const int c)
 	switch(c)
 	{
 	case 'Q':
-		minix_shutdown(0);
+		minix_shutdown(NULL);
 		NOT_REACHABLE;
 #ifdef CONFIG_SMP
 	case 'B':
@@ -421,7 +421,7 @@ static void ser_debug(const int c)
 
 #if DEBUG_SERIAL
 
-static void ser_dump_vfs(void)
+static void ser_dump_vfs()
 {
 	/* Notify VFS it has to generate stack traces. Kernel can't do that as
 	 * it's not aware of user space threads.

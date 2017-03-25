@@ -43,23 +43,24 @@ static void init_hook(void) {
 }
 
 
-static void message_hook(message *m, int __unused ipc_status)
+static int message_hook (message *m)
 {
 	switch (m->m_type) {
 		case DEVMAN_ADD_DEV:
-			do_add_device(m);
+			return do_add_device(m);
 		case DEVMAN_DEL_DEV:
-			do_del_device(m);
+			return do_del_device(m);
 		case DEVMAN_BIND:
-			do_bind_device(m);
+			return do_bind_device(m);
 		case DEVMAN_UNBIND:
-			do_unbind_device(m);
+			return do_unbind_device(m);
+		default: return -1;
 	}
 }
 
-static ssize_t
+static int 
 read_hook
-(struct inode *inode, char *ptr, size_t len, off_t offset, cbdata_t cbdata)
+(struct inode *inode, off_t offset, char **ptr, size_t *len, cbdata_t cbdata)
 {
 	struct devman_inode *d_inode = (struct devman_inode *) cbdata;
 
@@ -70,13 +71,13 @@ read_hook
 int main (int argc, char* argv[])
 {
 
-	static struct fs_hooks hooks;
-	static struct inode_stat root_stat;
+	struct fs_hooks hooks;
+	struct inode_stat root_stat;
 
 	/* fill in the hooks */
 	memset(&hooks, 0, sizeof(hooks));
 	hooks.init_hook 	= init_hook;
-	hooks.read_hook 	= read_hook;
+	hooks.read_hook 	= read_hook; /* read will never be called */
 	hooks.message_hook 	= message_hook;	/* handle the ds_update call */
 
 	root_stat.mode 	= S_IFDIR | S_IRUSR | S_IRGRP | S_IROTH;
@@ -85,9 +86,8 @@ int main (int argc, char* argv[])
 	root_stat.size 	= 0;
 	root_stat.dev 	= NO_DEV;
 
-	/* run VTreeFS */
-	run_vtreefs(&hooks, 1024, 0, &root_stat, 0, BUF_SIZE);
-
+	/* limit the number of indexed entries */
+	start_vtreefs(&hooks, 1024 , &root_stat, 0);
 	return 0;
 }
 

@@ -6,19 +6,22 @@
 #include <string.h>
 #include <sys/svrctl.h>
 
-int svrctl(unsigned long request, void *argp)
+int svrctl(int request, void *argp)
 {
 	message m;
 
 	memset(&m, 0, sizeof(m));
-	m.m_lc_svrctl.request = request;
-	m.m_lc_svrctl.arg = (vir_bytes)argp;
+	m.m_lsys_svrctl.request = request;
+	m.m_lsys_svrctl.arg = argp;
 
-	switch (IOCGROUP(request)) {
-	case 'M': /* old, phasing out */
-	case 'P': /* to PM */
+	switch ((request >> 8) & 0xFF) {
+	case 'M':
+	case 'S':
+		/* PM handles calls for itself and the kernel. */
 		return _syscall(PM_PROC_NR, PM_SVRCTL, &m);
-	case 'F': /* to VFS */
+	case 'F':
+	case 'I':
+		/* VFS handles calls for itself and inet. */
 		return _syscall(VFS_PROC_NR, VFS_SVRCTL, &m);
 	default:
 		errno = EINVAL;

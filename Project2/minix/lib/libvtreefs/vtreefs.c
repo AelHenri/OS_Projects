@@ -1,110 +1,159 @@
-/* VTreeFS - vtreefs.c - initialization and message loop */
+/* VTreeFS - vtreefs.c - by Alen Stojanov and David van Moolenbroek */
 
 #include "inc.h"
+
+static int get_work(void);
+static void send_reply(int err, int transid);
+static void got_signal(int signal);
 
 static unsigned int inodes;
 static struct inode_stat *root_stat;
 static index_t root_entries;
-static size_t buf_size;
-static size_t extra_size;
 
-/*
- * Initialize internal state.  This is the only place where dynamic memory
- * allocation takes place.
- */
-static int
-init_server(int __unused type, sef_init_info_t * __unused info)
+/*===========================================================================*
+ *				init_server				     *
+ *===========================================================================*/
+static int init_server(int UNUSED(type), sef_init_info_t *UNUSED(info))
 {
-	int r;
+	/* Initialize internal state, and register with VFS.
+	 */
 
 	/* Initialize the virtual tree. */
-	if ((r = init_inodes(inodes, root_stat, root_entries)) != OK)
-		panic("init_inodes failed: %d", r);
+	init_inodes(inodes, root_stat, root_entries);
 
-	/* Initialize extra data. */
-	if ((r = init_extra(inodes, extra_size)) != OK)
-		panic("init_extra failed: %d", r);
-
-	/* Initialize the I/O buffer. */
-	if ((r = init_buf(buf_size)) != OK)
-		panic("init_buf failed: %d", r);
+	/* Do not yet allow any requests except REQ_READSUPER. */
+	fs_mounted = FALSE;
 
 	return OK;
 }
 
-/*
- * We received a signal.
- */
-static void
-got_signal(int sig)
-{
-
-	if (sig != SIGTERM)
-		return;
-
-	fsdriver_terminate();
-}
-
-/*
- * SEF initialization.
- */
-static void
-sef_local_startup(void)
+/*===========================================================================*
+ *				sef_local_startup			     *
+ *===========================================================================*/
+static void sef_local_startup(void)
 {
 	sef_setcb_init_fresh(init_server);
-	sef_setcb_init_restart(SEF_CB_INIT_RESTART_STATEFUL);
+	sef_setcb_init_restart(init_server);
 
 	sef_setcb_signal_handler(got_signal);
+
+	/* No support for live update yet. */
 
 	sef_startup();
 }
 
-/*
- * We have received a message that is not a file system request from VFS.
- * Call the message hook, if there is one.
- */
-void
-fs_other(const message * m_ptr, int ipc_status)
+/*===========================================================================*
+ *				start_vtreefs				     *
+ *===========================================================================*/
+void start_vtreefs(struct fs_hooks *hooks, unsigned int nr_inodes,
+		struct inode_stat *stat, index_t nr_indexed_entries)
 {
-	message msg;
+	/* This is the main routine of this service. The main loop consists of
+	 * three major activities: getting new work, processing the work, and
+	 * sending the reply. The loop exits when the process is signaled to
+	 * exit; due to limitations of SEF, it can not return to the caller.
+	 */
+	int call_nr, err, transid;
 
-	if (vtreefs_hooks->message_hook != NULL) {
-		/*
-		 * Not all of vtreefs's users play nice with the message, so
-		 * make a copy to allow it to be modified.
-		 */
-		msg = *m_ptr;
-
-		vtreefs_hooks->message_hook(&msg, ipc_status);
-	}
-}
-
-/*
- * This is the main routine of this service.  It uses the main loop as provided
- * by the fsdriver library.  The routine returns once the file system has been
- * unmounted and the process is signaled to exit.
- */
-void
-run_vtreefs(struct fs_hooks * hooks, unsigned int nr_inodes,
-	size_t inode_extra, struct inode_stat * istat,
-	index_t nr_indexed_entries, size_t bufsize)
-{
-
-	/*
-	 * Use global variables to work around the inability to pass parameters
+	/* Use global variables to work around the inability to pass parameters
 	 * through SEF to the initialization function..
 	 */
 	vtreefs_hooks = hooks;
 	inodes = nr_inodes;
-	extra_size = inode_extra;
-	root_stat = istat;
+	root_stat = stat;
 	root_entries = nr_indexed_entries;
-	buf_size = bufsize;
 
 	sef_local_startup();
 
-	fsdriver_task(&vtreefs_table);
+	for (;;) {
+		get_work();
 
-	cleanup_buf();
+		transid = TRNS_GET_ID(fs_m_in.m_type);
+		fs_m_in.m_type = TRNS_DEL_ID(fs_m_in.m_type);
+		if (fs_m_in.m_type == 0) {
+			assert(!IS_VFS_FS_TRANSID(transid));
+			fs_m_in.m_type = transid;	/* Backwards compat. */
+			transid = 0;
+		} else
+			assert(IS_VFS_FS_TRANSID(transid));
+
+		call_nr = fs_m_in.m_type;
+
+		if (fs_m_in.m_source != VFS_PROC_NR) {
+			if (vtreefs_hooks->message_hook != NULL) {
+				/* If the request is not among the recognized
+				 * requests, call the message hook.
+				 */
+				vtreefs_hooks->message_hook(&fs_m_in);
+			}
+
+			continue;
+		}
+
+		if (fs_mounted || call_nr == REQ_READSUPER) {
+			call_nr -= FS_BASE;
+
+			if (call_nr >= 0 && call_nr < NREQS) {
+				err = (*fs_call_vec[call_nr])();
+			} else {
+				err = ENOSYS;
+			}
+		}
+		else err = EINVAL;
+
+		send_reply(err, transid);
+	}
+}
+
+/*===========================================================================*
+ *				get_work				     *
+ *===========================================================================*/
+static int get_work(void)
+{
+	/* Retrieve work. Return the call number.
+	 */
+	int r;
+
+	if ((r = sef_receive(ANY, &fs_m_in)) != OK)
+		panic("receive failed: %d", r);
+
+	return fs_m_in.m_type;
+}
+
+/*===========================================================================*
+ *				send_reply				     *
+ *===========================================================================*/
+static void send_reply(int err, int transid)
+{
+	/* Send a reply to the caller.
+	 */
+	int r;
+
+	fs_m_out.m_type = err;
+	if (IS_VFS_FS_TRANSID(transid)) {
+		fs_m_out.m_type = TRNS_ADD_ID(fs_m_out.m_type, transid);
+	}
+
+	if ((r = ipc_send(fs_m_in.m_source, &fs_m_out)) != OK)
+		panic("unable to send reply: %d", r);
+}
+
+/*===========================================================================*
+ *				got_signal				     *
+ *===========================================================================*/
+static void got_signal(int signal)
+{
+	/* We received a signal. If it is a termination signal, and the file
+	 * system has already been unmounted, clean up and exit.
+	 */
+
+	if (signal != SIGTERM)
+		return;
+
+	if (fs_mounted)
+		return;
+
 	cleanup_inodes();
+
+	exit(0);
 }

@@ -61,8 +61,7 @@ void check_vnode_locks_by_me(struct fproc *rfp)
 /*===========================================================================*
  *				check_vnode_locks			     *
  *===========================================================================*/
-void
-check_vnode_locks(void)
+void check_vnode_locks()
 {
   struct vnode *vp;
   int count = 0;
@@ -81,8 +80,7 @@ check_vnode_locks(void)
 /*===========================================================================*
  *				get_free_vnode				     *
  *===========================================================================*/
-struct vnode *
-get_free_vnode(void)
+struct vnode *get_free_vnode()
 {
 /* Find a free vnode slot in the vnode table (it's not actually allocated) */
   struct vnode *vp;

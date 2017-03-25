@@ -10,7 +10,6 @@
 */
 
 #include <minix/drivers.h>
-#include <minix/netdriver.h>
 #include <net/gen/ether.h>
 #include <net/gen/eth_io.h>
 #include "dp.h"
@@ -21,7 +20,7 @@
 #include "3c503.h"
 
 /*
-**  Name:	el2_init
+**  Name:	void el2_init(dpeth_t *dep);
 **  Function:	Initalize hardware and data structures.
 */
 static void el2_init(dpeth_t * dep)
@@ -98,10 +97,11 @@ static void el2_init(dpeth_t * dep)
   for (ix = 0; ix < SA_ADDR_LEN; ix += 1)
 	printf("%02X%c", dep->de_address.ea_addr[ix],
 	       ix < SA_ADDR_LEN - 1 ? ':' : '\n');
+  return;
 }
 
 /*
-**  Name:	el2_stop
+**  Name:	void el2_stop(dpeth_t *dep);
 **  Function:	Stops board by disabling interrupts.
 */
 static void el2_stop(dpeth_t * dep)
@@ -109,10 +109,11 @@ static void el2_stop(dpeth_t * dep)
 
   outb_el2(dep, EL2_CFGR, ECFGR_IRQOFF);
   sys_irqdisable(&dep->de_hook);	/* disable interrupts */
+  return;
 }
 
 /*
-**  Name:	el2_probe
+**  Name:	void el2_probe(dpeth_t *dep);
 **  Function:	Probe for the presence of an EtherLink II card.
 **  		Initialize memory addressing if card detected.
 */
@@ -131,9 +132,9 @@ int el2_probe(dpeth_t * dep)
 
   /* Resets board */
   outb_el2(dep, EL2_CNTR, ECNTR_RESET | thin);
-  micro_delay(1000);
+  milli_delay(1);
   outb_el2(dep, EL2_CNTR, thin);
-  micro_delay(5000);
+  milli_delay(5);
 
   /* Map the address PROM to lower I/O address range */
   outb_el2(dep, EL2_CNTR, ECNTR_SAPROM | thin);

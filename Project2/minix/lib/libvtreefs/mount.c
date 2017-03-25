@@ -1,48 +1,52 @@
-/* VTreeFS - mount.c - mounting and unmounting */
+/* VTreeFS - mount.c - by Alen Stojanov and David van Moolenbroek */
 
 #include "inc.h"
-#include <minix/vfsif.h>
 
-/*
- * Mount the file system.  Obtain the root inode and send back its details.
- */
-int
-fs_mount(dev_t __unused dev, unsigned int flags,
-	struct fsdriver_node * root_node, unsigned int * res_flags)
+/*===========================================================================*
+ *				fs_readsuper				     *
+ *===========================================================================*/
+int fs_readsuper(void)
 {
+	/* This function gets the root inode and sends back its details.
+	 */
 	struct inode *root;
 
-	/* VTreeFS must not be mounted as a root file system. */
-	if (flags & REQ_ISROOT)
+	/* Get the device number, for stat requests. */
+	fs_dev = fs_m_in.m_vfs_fs_readsuper.device;
+
+	/* The VTreeFS must not be mounted as a root file system. */
+	if (fs_m_in.m_vfs_fs_readsuper.flags & REQ_ISROOT)
 		return EINVAL;
 
 	/* Get the root inode and increase its reference count. */
 	root = get_root_inode();
 	ref_inode(root);
 
-	/* The system is now mounted.  Call the initialization hook. */
+	/* The system is now mounted. Call the initialization hook. */
 	if (vtreefs_hooks->init_hook != NULL)
 		vtreefs_hooks->init_hook();
 
 	/* Return the root inode's properties. */
-	root_node->fn_ino_nr = get_inode_number(root);
-	root_node->fn_mode = root->i_stat.mode;
-	root_node->fn_size = root->i_stat.size;
-	root_node->fn_uid = root->i_stat.uid;
-	root_node->fn_gid = root->i_stat.gid;
-	root_node->fn_dev = NO_DEV;
+	fs_m_out.m_fs_vfs_readsuper.inode = get_inode_number(root);
+	fs_m_out.m_fs_vfs_readsuper.mode = root->i_stat.mode;
+	fs_m_out.m_fs_vfs_readsuper.file_size = root->i_stat.size;
+	fs_m_out.m_fs_vfs_readsuper.uid = root->i_stat.uid;
+	fs_m_out.m_fs_vfs_readsuper.gid = root->i_stat.gid;
+	fs_m_out.m_fs_vfs_readsuper.device = NO_DEV;
+	fs_m_out.m_fs_vfs_readsuper.flags = RES_NOFLAGS;
 
-	*res_flags = RES_NOFLAGS;
+	fs_mounted = TRUE;
 
 	return OK;
 }
 
-/*
- * Unmount the file system.
- */
-void
-fs_unmount(void)
+/*===========================================================================*
+ *				fs_unmount				     *
+ *===========================================================================*/
+int fs_unmount(void)
 {
+	/* Unmount the file system.
+	 */
 	struct inode *root;
 
 	/* Decrease the count of the root inode. */
@@ -50,7 +54,12 @@ fs_unmount(void)
 
 	put_inode(root);
 
-	/* The system is unmounted.  Call the cleanup hook. */
+	/* The system is unmounted. Call the cleanup hook. */
 	if (vtreefs_hooks->cleanup_hook != NULL)
 		vtreefs_hooks->cleanup_hook();
+
+	/* We can now be shut down safely. */
+	fs_mounted = FALSE;
+
+	return OK;
 }

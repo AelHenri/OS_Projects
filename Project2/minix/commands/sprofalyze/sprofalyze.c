@@ -20,29 +20,10 @@
 static const char *default_binaries[] = {
 	"kernel/kernel",
 	"servers/",
-	/* XXX this should not be necessary */
-	"drivers/audio/",
-	"drivers/bus/",
-	"drivers/clock/",
-	"drivers/eeprom/",
-	"drivers/examples/",
-	"drivers/hid/",
-	"drivers/iommu/",
-	"drivers/net/",
-	"drivers/power/",
-	"drivers/printer/",
-	"drivers/sensors/",
-	"drivers/storage/",
-	"drivers/system/",
-	"drivers/tty/",
-	"drivers/usb/",
-	"drivers/video/",
-	"drivers/vmm_guest/",
-	"fs/",
-	"net/",
+	"drivers/",
 };
 
-static const char *src_path = "/usr/src/minix";
+static const char *src_path = "/usr/src";
 
 /* types */
 
@@ -1039,7 +1020,7 @@ static void usage(const char *argv0) {
 		"[-b binary]... file...\n", argv0);
 	printf("\n");
 	printf("sprofalyze aggregates one or more sprofile traces and");
-	printf(" reports where time was spent.\n");
+	printf("reports where time was spent.\n");
 	printf("\n");
 	printf("arguments:\n");
 	printf("-d generates output that can be compared using sprofdiff\n");

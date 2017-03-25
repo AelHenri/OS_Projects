@@ -2,7 +2,10 @@
 #include "regexp.h"
 #include "proto.h"
 
-void regerror(char *s) {
+void
+regerror(s)
+char *s;
+{
 #ifndef DOSPORT
 #ifdef ERRAVAIL
 	error("regexp: %s", s);

@@ -1,4 +1,4 @@
 PROG=	rawspeed
-MAN=	rawspeed.8
+MAN=
 
 .include <bsd.prog.mk>

@@ -2,8 +2,12 @@
 #include <assert.h>
 #include <machine/archtypes.h>
 #include <minix/timers.h>
-#include <minix/sched.h>
 #include <string.h>
+
+#include "kernel/config.h"
+#include "kernel/const.h"
+#include "kernel/type.h"
+#include "kernel/proc.h"
 
 /*===========================================================================*
  *				sched_inherit				     *

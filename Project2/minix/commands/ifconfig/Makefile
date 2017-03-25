@@ -1,4 +1,5 @@
 PROG=	ifconfig
-MAN=	ifconfig.8
+BINMODE= 4755
+MAN=
 
 .include <bsd.prog.mk>

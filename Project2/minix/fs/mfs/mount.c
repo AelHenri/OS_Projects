@@ -4,20 +4,44 @@
 #include <minix/vfsif.h>
 #include <minix/bdev.h>
 
+static int cleanmount = 1;
+
 /*===========================================================================*
- *				fs_mount				     *
+ *				fs_readsuper				     *
  *===========================================================================*/
-int fs_mount(dev_t dev, unsigned int flags, struct fsdriver_node *root_node,
-	unsigned int *res_flags)
+int fs_readsuper()
 {
 /* This function reads the superblock of the partition, gets the root inode
- * and sends back the details of them.
+ * and sends back the details of them. Note, that the FS process does not
+ * know the index of the vmnt object which refers to it, whenever the pathname 
+ * lookup leaves a partition an ELEAVEMOUNT error is transferred back 
+ * so that the VFS knows that it has to find the vnode on which this FS 
+ * process' partition is mounted on.
  */
   struct inode *root_ip;
-  int r, readonly;
+  cp_grant_id_t label_gid;
+  size_t label_len;
+  int r;
+  int readonly, isroot;
 
-  fs_dev = dev;
-  readonly = (flags & REQ_RDONLY) ? 1 : 0;
+  fs_dev    = fs_m_in.m_vfs_fs_readsuper.device;
+  label_gid = fs_m_in.m_vfs_fs_readsuper.grant;
+  label_len = fs_m_in.m_vfs_fs_readsuper.path_len;
+  readonly  = (fs_m_in.m_vfs_fs_readsuper.flags & REQ_RDONLY) ? 1 : 0;
+  isroot    = (fs_m_in.m_vfs_fs_readsuper.flags & REQ_ISROOT) ? 1 : 0;
+
+  if (label_len > sizeof(fs_dev_label))
+	return(EINVAL);
+
+  r = sys_safecopyfrom(fs_m_in.m_source, label_gid, (vir_bytes) 0,
+		       (vir_bytes) fs_dev_label, label_len);
+  if (r != OK) {
+	printf("MFS %s:%d safecopyfrom failed: %d\n", __FILE__, __LINE__, r);
+	return(EINVAL);
+  }
+
+  /* Map the driver label for this major. */
+  bdev_driver(fs_dev, fs_dev_label);
 
   /* Open the device the file system lives on. */
   if (bdev_open(fs_dev, readonly ? BDEV_R_BIT : (BDEV_R_BIT|BDEV_W_BIT) ) !=
@@ -36,6 +60,12 @@ int fs_mount(dev_t dev, unsigned int flags, struct fsdriver_node *root_node,
 	return(r);
   }
 
+  /* Remember whether we were mounted cleanly so we know what to
+   * do at unmount time
+   */
+  if(superblock.s_flags & MFSFLAG_CLEAN)
+	cleanmount = 1;
+
   /* clean check: if rw and not clean, switch to readonly */
   if(!(superblock.s_flags & MFSFLAG_CLEAN) && !readonly) {
 	if(bdev_close(fs_dev) != OK)
@@ -48,16 +78,8 @@ int fs_mount(dev_t dev, unsigned int flags, struct fsdriver_node *root_node,
   	}
 	printf("MFS: WARNING: FS 0x%llx unclean, mounting readonly\n", fs_dev);
   }
-
-  lmfs_set_blocksize(superblock.s_block_size);
-
-  /* Compute the current number of used zones, and report it to libminixfs.
-   * Note that libminixfs really wants numbers of *blocks*, but this MFS
-   * implementation dropped support for differing zone/block sizes a while ago.
-   */
-  used_zones = superblock.s_zones - count_free_bits(&superblock, ZMAP);
-
-  lmfs_set_blockusage(superblock.s_zones, used_zones);
+  
+  lmfs_set_blocksize(superblock.s_block_size, major(fs_dev));
   
   /* Get the root inode of the mounted file system. */
   if( (root_ip = get_inode(fs_dev, ROOT_INODE)) == NULL)  {
@@ -76,16 +98,15 @@ int fs_mount(dev_t dev, unsigned int flags, struct fsdriver_node *root_node,
   }
 
   superblock.s_rd_only = readonly;
+  superblock.s_is_root = isroot;
   
   /* Root inode properties */
-  root_node->fn_ino_nr = root_ip->i_num;
-  root_node->fn_mode = root_ip->i_mode;
-  root_node->fn_size = root_ip->i_size;
-  root_node->fn_uid = root_ip->i_uid;
-  root_node->fn_gid = root_ip->i_gid;
-  root_node->fn_dev = NO_DEV;
-
-  *res_flags = RES_NOFLAGS;
+  fs_m_out.m_fs_vfs_readsuper.inode = root_ip->i_num;
+  fs_m_out.m_fs_vfs_readsuper.mode = root_ip->i_mode;
+  fs_m_out.m_fs_vfs_readsuper.file_size = root_ip->i_size;
+  fs_m_out.m_fs_vfs_readsuper.uid = root_ip->i_uid;
+  fs_m_out.m_fs_vfs_readsuper.gid = root_ip->i_gid;
+  fs_m_out.m_fs_vfs_readsuper.flags = RES_HASPEEK;
 
   /* Mark it dirty */
   if(!superblock.s_rd_only) {
@@ -99,9 +120,9 @@ int fs_mount(dev_t dev, unsigned int flags, struct fsdriver_node *root_node,
 
 
 /*===========================================================================*
- *				fs_mountpt				     *
+ *				fs_mountpoint				     *
  *===========================================================================*/
-int fs_mountpt(ino_t ino_nr)
+int fs_mountpoint()
 {
 /* This function looks up the mount point, it checks the condition whether
  * the partition can be mounted on the inode or not. 
@@ -111,8 +132,9 @@ int fs_mountpt(ino_t ino_nr)
   mode_t bits;
   
   /* Temporarily open the file. */
-  if( (rip = get_inode(fs_dev, ino_nr)) == NULL)
+  if( (rip = get_inode(fs_dev, fs_m_in.m_vfs_fs_mountpoint.inode)) == NULL)
 	  return(EINVAL);
+  
   
   if(rip->i_mountpoint) r = EBUSY;
 
@@ -131,32 +153,33 @@ int fs_mountpt(ino_t ino_nr)
 /*===========================================================================*
  *				fs_unmount				     *
  *===========================================================================*/
-void fs_unmount(void)
+int fs_unmount()
 {
-/* Unmount a file system. */
+/* Unmount a file system by device number. */
   int count;
   struct inode *rip, *root_ip;
 
+  if(superblock.s_dev != fs_dev) return(EINVAL);
+  
   /* See if the mounted device is busy.  Only 1 inode using it should be
-   * open --the root inode-- and that inode only 1 time.  This is an integrity
-   * check only: VFS expects the unmount to succeed either way.
-   */
+   * open --the root inode-- and that inode only 1 time. */
   count = 0;
   for (rip = &inode[0]; rip < &inode[NR_INODES]; rip++) 
 	  if (rip->i_count > 0 && rip->i_dev == fs_dev) count += rip->i_count;
-  if (count != 1)
-	printf("MFS: file system has %d in-use inodes!\n", count);
 
-  if ((root_ip = find_inode(fs_dev, ROOT_INODE)) == NULL)
-	panic("MFS: couldn't find root inode\n");
+  if ((root_ip = find_inode(fs_dev, ROOT_INODE)) == NULL) {
+  	panic("MFS: couldn't find root inode\n");
+  	return(EINVAL);
+  }
    
+  if (count > 1) return(EBUSY);	/* can't umount a busy file system */
   put_inode(root_ip);
 
   /* force any cached blocks out of memory */
-  fs_sync();
+  (void) fs_sync();
 
   /* Mark it clean if we're allowed to write _and_ it was clean originally. */
-  if (!superblock.s_rd_only) {
+  if(cleanmount && !superblock.s_rd_only) {
 	superblock.s_flags |= MFSFLAG_CLEAN;
 	write_super(&superblock);
   }
@@ -169,5 +192,8 @@ void fs_unmount(void)
 
   /* Finish off the unmount. */
   superblock.s_dev = NO_DEV;
+  unmountdone = TRUE;
+
+  return(OK);
 }
 

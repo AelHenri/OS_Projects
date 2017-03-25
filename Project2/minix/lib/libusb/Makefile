@@ -1,6 +1,7 @@
-# Makefile for libdriver
+NOGCCERROR=yes
+NOCLANGERROR=yes
 
-CPPFLAGS+= -D_MINIX_SYSTEM
+# Makefile for libdriver
 
 LIB = usb	
 

@@ -12,7 +12,7 @@ SUBDIR+=	libchardriver
 SUBDIR+=	libddekit
 SUBDIR+=	libdevman
 SUBDIR+=	libexec
-SUBDIR+=	libfsdriver
+SUBDIR+=	libfetch
 SUBDIR+=	libinputdriver
 SUBDIR+=	libminc
 SUBDIR+=	libminixfs
@@ -32,7 +32,6 @@ SUBDIR+=	libnetsock
 .endif
 
 .if (${MACHINE_ARCH} == "i386")
-SUBDIR+=	libacpi
 SUBDIR+=	libhgfs
 SUBDIR+=	libvassert
 SUBDIR+=	libvboxfs
@@ -43,10 +42,6 @@ SUBDIR+=	libvirtio
 SUBDIR+=	libclkconf
 SUBDIR+=	libgpio
 SUBDIR+=	libi2cdriver
-.endif
-
-.if (${MKMAGIC} == "yes")
-SUBDIR+=	libmagicrt
 .endif
 
 .include <bsd.buildinstall.mk>

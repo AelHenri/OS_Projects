@@ -2,13 +2,13 @@
 .include <bsd.own.mk>
 
 PROG=	procfs
-SRCS=	buf.c cpuinfo.c main.c pid.c root.c service.c tree.c util.c
+SRCS=	buf.c main.c pid.c root.c tree.c util.c cpuinfo.c
 
 CPPFLAGS+= -I${NETBSDSRCDIR}/minix
 CPPFLAGS+= -I${NETBSDSRCDIR}/minix/fs
 CPPFLAGS+= -I${NETBSDSRCDIR}/minix/servers
 
-DPADD+=	${LIBVTREEFS} ${LIBFSDRIVER}
-LDADD+=	-lvtreefs -lfsdriver
+DPADD+=	${LIBVTREEFS} ${LIBMINIXFS}
+LDADD+=	-lvtreefs -lminixfs
 
 .include <minix.service.mk>

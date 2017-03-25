@@ -21,7 +21,6 @@
 #include <minix/endpoint.h>
 #include <minix/com.h>
 #include <minix/u64.h>
-#include <lib.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
@@ -214,8 +213,11 @@ int pm_exec(vir_bytes path, size_t path_len, vir_bytes frame, size_t frame_len,
 
   /* passed from exec() libc code */
   execi.userflags = 0;
-  execi.args.stack_high = minix_get_user_sp();
+  execi.args.stack_high = kinfo.user_sp;
   execi.args.stack_size = DEFAULT_STACK_LIMIT;
+
+  fp->text_size = 0;
+  fp->data_size = 0;
 
   lookup_init(&resolve, fullpath, PATH_NOFLAGS, &execi.vmp, &execi.vp);
 
@@ -275,27 +277,22 @@ int pm_exec(vir_bytes path, size_t path_len, vir_bytes frame, size_t frame_len,
    * executable instead. But open the current executable in an
    * fd for the current process.
    */
-  r = elf_has_interpreter(execi.args.hdr, execi.args.hdr_len,
-	elf_interpreter, sizeof(elf_interpreter));
-  if (0 > r)
-	FAILCHECK(r);
-
-  if (0 < r) {
+  if(elf_has_interpreter(execi.args.hdr, execi.args.hdr_len,
+	elf_interpreter, sizeof(elf_interpreter))) {
 	/* Switch the executable vnode to the interpreter */
 	execi.is_dyn = 1;
 
 	/* The interpreter (loader) needs an fd to the main program,
 	 * which is currently in finalexec
 	 */
-	if ((r = execi.elf_main_fd =
-	    common_open(finalexec, O_RDONLY, 0, TRUE /*for_exec*/)) < 0) {
+	if((r = execi.elf_main_fd = common_open(finalexec, O_RDONLY, 0)) < 0) {
 		printf("VFS: exec: dynamic: open main exec failed %s (%d)\n",
 			fullpath, r);
 		FAILCHECK(r);
 	}
 
 	/* ld.so is linked at 0, but it can relocate itself; we
-	 * want it higher to trap NULL pointer dereferences.
+	 * want it higher to trap NULL pointer dereferences. 
 	 * Let's put it below the stack, and reserve 10MB for ld.so.
 	 */
 	execi.args.load_offset =
@@ -382,6 +379,8 @@ int pm_exec(vir_bytes path, size_t path_len, vir_bytes frame, size_t frame_len,
 
   /* Remember the new name of the process */
   strlcpy(fp->fp_name, execi.args.progname, PROC_NAME_LEN);
+  fp->text_size = execi.args.text_size;
+  fp->data_size = execi.args.data_size;
 
 pm_execfinal:
   if(newfilp) unlock_filp(newfilp);
@@ -435,12 +434,12 @@ static int stack_prepare_elf(struct vfs_exec_info *execi, char *frame, size_t *f
 		return ENOEXEC;
 	}
 
-	/* Find first Aux vector in the stack frame. */
+	/* Find first Aux vector in the stack frame. */ 
 	vap = (vir_bytes)(psp->ps_envstr + (psp->ps_nenvstr + 1));
 	aux_vec = (AuxInfo *) (frame + (vap - *vsp));
 	aux_vec_end = aux_vec + PMEF_AUXVECTORS;
 
-	if (((char *)aux_vec < frame) ||
+	if (((char *)aux_vec < frame) || 
 		((char *)aux_vec > (frame + *frame_size))) {
 		printf("VFS: malformed stack for exec(), first AuxVector is"
 		       " not on the stack.\n");
@@ -546,7 +545,7 @@ vir_bytes *vsp;
   int n, r;
   off_t pos, new_pos;
   char *sp, *interp = NULL;
-  size_t cum_io;
+  unsigned int cum_io;
   char buf[PAGE_SIZE];
 
   /* Make 'path' the new argv[0]. */
@@ -646,7 +645,7 @@ static int insert_arg(char stack[ARG_MAX], size_t *stk_bytes, char *arg,
 
 	/* The stack will grow (or shrink) by offset bytes. */
 	if ((*stk_bytes += offset) > ARG_MAX) {
-		printf("vfs:: offset too big!! %zu (max %d)\n", *stk_bytes,
+		printf("vfs:: offset too big!! %d (max %d)\n", *stk_bytes,
 			ARG_MAX);
 		return FALSE;
 	}
@@ -694,7 +693,7 @@ static int read_seg(struct exec_info *execi, off_t off, vir_bytes seg_addr, size
  */
   int r;
   off_t new_pos;
-  size_t cum_io;
+  unsigned int cum_io;
   struct vnode *vp = ((struct vfs_exec_info *) execi->opaque)->vp;
 
   /* Make sure that the file is big enough */
@@ -736,14 +735,9 @@ static void clo_exec(struct fproc *rfp)
 static int map_header(struct vfs_exec_info *execi)
 {
   int r;
-  size_t cum_io;
+  unsigned int cum_io;
   off_t pos, new_pos;
-  /* Assume that header is not larger than a page. Align the buffer reasonably
-   * well, because libexec casts it to a structure directly and therefore
-   * expects it to be aligned appropriately. From here we can only guess the
-   * proper alignment, but 64 bits should work for all versions of ELF..
-   */
-  static char hdr[10*PAGE_SIZE] __aligned(8);
+  static char hdr[PAGE_SIZE]; /* Assume that header is not larger than a page */
 
   pos = 0;	/* Read from the start of the file */
 

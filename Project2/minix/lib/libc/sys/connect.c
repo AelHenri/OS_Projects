@@ -1,7 +1,5 @@
 #include <sys/cdefs.h>
 #include "namespace.h"
-#include <lib.h>
-
 #include <minix/config.h>
 
 #include <errno.h>
@@ -33,32 +31,12 @@ static int _udp_connect(int sock, const struct sockaddr *address,
 static int _uds_connect(int sock, const struct sockaddr *address,
 	socklen_t address_len);
 
-/*
- * Connect a socket to a remote address.
- */
-static int
-__connect(int fd, const struct sockaddr * address, socklen_t address_len)
-{
-	message m;
-
-	memset(&m, 0, sizeof(m));
-	m.m_lc_vfs_sockaddr.fd = fd;
-	m.m_lc_vfs_sockaddr.addr = (vir_bytes)address;
-	m.m_lc_vfs_sockaddr.addr_len = address_len;
-
-	return _syscall(VFS_PROC_NR, VFS_CONNECT, &m);
-}
-
 int connect(int sock, const struct sockaddr *address,
 	socklen_t address_len)
 {
 	int r;
 	nwio_tcpconf_t tcpconf;
 	nwio_udpopt_t udpopt;
-
-	r = __connect(sock, address, address_len);
-	if (r != -1 || (errno != ENOTSOCK && errno != ENOSYS))
-		return r;
 
 	r= ioctl(sock, NWIOGTCPCONF, &tcpconf);
 	if (r != -1 || errno != ENOTTY)
@@ -94,7 +72,10 @@ int connect(int sock, const struct sockaddr *address,
 		return r;
 	}
 
-	errno = ENOTSOCK;
+#if DEBUG
+	fprintf(stderr, "connect: not implemented for fd %d\n", sock);
+#endif
+	errno= ENOSYS;
 	return -1;
 }
 

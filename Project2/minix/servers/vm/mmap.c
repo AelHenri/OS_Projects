@@ -24,6 +24,7 @@
 #include <errno.h>
 #include <assert.h>
 #include <string.h>
+#include <env.h>
 #include <stdio.h>
 #include <fcntl.h>
 
@@ -74,7 +75,7 @@ static struct vir_region *mmap_region(struct vmproc *vmp, vir_bytes addr,
 
 	if (!vr) {
 		/* No address given or address already in use. */
-		vr = map_page_region(vmp, VM_MMAPBASE, VM_MMAPTOP, len,
+		vr = map_page_region(vmp, VM_PAGE_SIZE, VM_DATATOP, len,
 			vrflags, mfflags, mt);
 	}
 
@@ -174,7 +175,7 @@ static void mmap_file_cont(struct vmproc *vmp, message *replymsg, void *cbarg,
 		printf("VM: VFS reply failed (%d)\n", replymsg->VMV_RESULT);
 		sys_diagctl_stacktrace(vmp->vm_endpoint);
 #endif
-		result = replymsg->VMV_RESULT;
+		result = origmsg->VMV_RESULT;
 	} else {
 		/* Finish mmap */
 		result = mmap_file(vmp, replymsg->VMV_FD, origmsg->m_mmap.offset,
@@ -234,7 +235,7 @@ int do_mmap(message *m)
 		mem_type_t *mt = NULL;
 
 		if(m->m_mmap.fd != -1) {
-			printf("VM: mmap: fd %d, len 0x%zx\n", m->m_mmap.fd, len);
+			printf("VM: mmap: fd %d, len 0x%x\n", m->m_mmap.fd, len);
 			return EINVAL;
 		}
 
@@ -293,13 +294,15 @@ static int map_perm_check(endpoint_t caller, endpoint_t target,
 	 */
 	if(caller == TTY_PROC_NR)
 		return OK;
+	if(caller != target)
+		return EPERM;
 	if(caller == MEM_PROC_NR)
 		return OK;
 
 	/* Anyone else needs explicit permission from the kernel (ultimately
 	 * set by PCI).
 	 */
-	r = sys_privquery_mem(target, physaddr, len);
+	r = sys_privquery_mem(caller, physaddr, len);
 
 	return r;
 }
@@ -334,8 +337,8 @@ int do_map_phys(message *m)
 	 * help it if we can't map in lower than page granularity.
 	 */
 	if(map_perm_check(m->m_source, target, startaddr, len) != OK) {
-		printf("VM: unauthorized mapping of 0x%lx by %d for %d\n",
-			startaddr, m->m_source, target);
+		printf("VM: unauthorized mapping of 0x%lx by %d\n",
+			startaddr, m->m_source);
 		return EPERM;
 	}
 
@@ -348,7 +351,7 @@ int do_map_phys(message *m)
 	if(len % VM_PAGE_SIZE)
 		len += VM_PAGE_SIZE - (len % VM_PAGE_SIZE);
 
-	if(!(vr = map_page_region(vmp, VM_MMAPBASE, VM_MMAPTOP, len,
+	if(!(vr = map_page_region(vmp, 0, VM_DATATOP, len, 
 		VR_DIRECT | VR_WRITABLE, 0, &mem_type_directphys))) {
 		return ENOMEM;
 	}
@@ -418,8 +421,8 @@ int do_remap(message *m)
 		vr = map_page_region(dvmp, da, 0, size, flags, 0,
 			&mem_type_shared);
 	else
-		vr = map_page_region(dvmp, VM_MMAPBASE, VM_MMAPTOP, size,
-			flags, 0, &mem_type_shared);
+		vr = map_page_region(dvmp, 0, VM_DATATOP, size, flags, 0,
+			&mem_type_shared);
 
 	if(!vr) {
 		printf("VM: re-map of shared area failed\n");
@@ -483,37 +486,12 @@ int do_get_refcount(message *m)
 }
 
 /*===========================================================================*
- *                             munmap_vm_lin                                 *
- *===========================================================================*/
-int munmap_vm_lin(vir_bytes addr, size_t len)
-{
-	if(addr % VM_PAGE_SIZE) {
-		printf("munmap_vm_lin: offset not page aligned\n");
-		return EFAULT;
-	}
-
-	if(len % VM_PAGE_SIZE) {
-		printf("munmap_vm_lin: len not page aligned\n");
-		return EFAULT;
-	}
-
-	if(pt_writemap(NULL, &vmproc[VM_PROC_NR].vm_pt, addr, MAP_NONE, len, 0,
-		WMF_OVERWRITE | WMF_FREE) != OK) {
-		printf("munmap_vm_lin: pt_writemap failed\n");
-		return EFAULT;
-	}
-
-	return OK;
-}
-
-/*===========================================================================*
  *                              do_munmap                                    *
  *===========================================================================*/
 int do_munmap(message *m)
 {
         int r, n;
         struct vmproc *vmp;
-	struct vir_region *vr;
         vir_bytes addr, len;
 	endpoint_t target = SELF;
 
@@ -529,24 +507,8 @@ int do_munmap(message *m)
         if((r=vm_isokendpt(target, &n)) != OK) {
                 panic("do_mmap: message from strange source: %d", m->m_source);
         }
-
+ 
         vmp = &vmproc[n];
-
-	if(m->m_source == VM_PROC_NR) {
-		/* VM munmap is a special case, the region we want to
-		 * munmap may or may not be there in our data structures,
-		 * depending on whether this is an updated VM instance or not.
-		 */
-		if(!region_search_root(&vmp->vm_regions_avl)) {
-			munmap_vm_lin(addr, m->VMUM_LEN);
-		}
-		else if((vr = map_lookup(vmp, addr, NULL))) {
-			if(map_unmap_region(vmp, vr, 0, m->VMUM_LEN) != OK) {
-				printf("VM: self map_unmap_region failed\n");
-			}
-		}
-		return SUSPEND;
-	}
 
 	if(m->m_type == VM_UNMAP_PHYS) {
 		addr = (vir_bytes) m->m_lsys_vm_unmap_phys.vaddr;

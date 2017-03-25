@@ -45,15 +45,14 @@ void panic(const char *fmt, ...)
 #endif
 
   /* Abort MINIX. */
-  minix_shutdown(0);
+  minix_shutdown(NULL);
 }
 
 /*===========================================================================*
  *				kputc				     	     *
  *===========================================================================*/
-void kputc(
-  int c					/* character to append */
-)
+void kputc(c)
+int c;					/* character to append */
 {
 /* Accumulate a single character for a kernel message. Send a notification
  * to the output drivers if an END_OF_KMESS is encountered.
@@ -84,9 +83,8 @@ void kputc(
 /*===========================================================================*
  *				_exit				     	     *
  *===========================================================================*/
-void _exit(
-  int e					/* error code */
-)
+void _exit(e)
+int e;					/* error code */
 {
   panic("_exit called from within the kernel, should not happen. (err %i)", e);
 }

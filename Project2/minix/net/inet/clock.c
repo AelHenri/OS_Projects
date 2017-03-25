@@ -35,8 +35,9 @@ time_t get_time()
 {
 	if (!curr_time)
 	{
-		curr_time = getticks();
-		assert(curr_time >= prev_time); /* XXX */
+		if (getticks(&curr_time) != OK)
+			ip_panic(("can't read clock"));
+		assert(curr_time >= prev_time);
 	}
 	return curr_time;
 }
@@ -53,7 +54,7 @@ clock_t tim;
 	}
 	else if (!curr_time)
 	{
-		DBLOCK(0x20, printf("set_time: new time %u < prev_time %u\n",
+		DBLOCK(0x20, printf("set_time: new time %lu < prev_time %lu\n",
 			tim, prev_time));
 	}
 }

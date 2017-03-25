@@ -17,10 +17,9 @@ stacktrace.o:	${NETBSDSRCDIR}/minix/lib/libsys/stacktrace.c
 MINC_OBJS_UNPAGED= atoi.o \
 	printf.o subr_prf.o \
 	strcmp.o strcpy.o strlen.o strncmp.o \
-	memcpy.o memmove.o memset.o 
-MINC_OBJS_UNPAGED+= divmodsi4.o divsi3.o udivsi3.o umodsi3.o \
-	umoddi3.o udivmoddi4.o __aeabi_idiv0.o aeabi_idivmod.o aeabi_uidivmod.o \
-	udivmodsi4.o aeabi_uldivmod.o
+	memcpy.o memmove.o memset.o \
+	udivdi3.o umoddi3.o qdivrem.o
+MINC_OBJS_UNPAGED+= __aeabi_ldiv0.o __aeabi_idiv0.o __aeabi_uldivmod.o divide.o divsi3.o udivsi3.o
 atoi.o:		${NETBSDSRCDIR}/minix/lib/libminc/atoi.c
 printf.o:	${NETBSDSRCDIR}/sys/lib/libsa/printf.c
 subr_prf.o:	${NETBSDSRCDIR}/sys/lib/libsa/subr_prf.c
@@ -30,22 +29,25 @@ memset.o:	${NETBSDSRCDIR}/common/lib/libc/arch/arm/string/memset.S
 strlen.o:	${NETBSDSRCDIR}/common/lib/libc/arch/arm/string/strlen.S
 strcpy.o:	${NETBSDSRCDIR}/common/lib/libc/arch/arm/string/strcpy.S
 strcmp.o:	${NETBSDSRCDIR}/common/lib/libc/arch/arm/string/strcmp.S
-__aeabi_idiv0.o:	${NETBSDSRCDIR}/common/lib/libc/arch/arm/gen/__aeabi_idiv0.c
-CPPFLAGS.__aeabi_idiv0.c+= -D_STANDALONE -I${NETBSDSRCDIR}/sys
 
-divsi3.o:	${NETBSDSRCDIR}/sys/external/bsd/compiler_rt/dist/lib/builtins/divsi3.c
-udivsi3.o:	${NETBSDSRCDIR}/sys/external/bsd/compiler_rt/dist/lib/builtins/udivsi3.c
-umodsi3.o:	${NETBSDSRCDIR}/sys/external/bsd/compiler_rt/dist/lib/builtins/umodsi3.c
-umoddi3.o:	${NETBSDSRCDIR}/sys/external/bsd/compiler_rt/dist/lib/builtins/umoddi3.c
-udivmoddi4.o:	${NETBSDSRCDIR}/sys/external/bsd/compiler_rt/dist/lib/builtins/udivmoddi4.c
-divmodsi4.o:		${NETBSDSRCDIR}/sys/external/bsd/compiler_rt/dist/lib/builtins/arm/divmodsi4.S
-udivmodsi4.o:		${NETBSDSRCDIR}/sys/external/bsd/compiler_rt/dist/lib/builtins/arm/udivmodsi4.S
-aeabi_idivmod.o:	${NETBSDSRCDIR}/sys/external/bsd/compiler_rt/dist/lib/builtins/arm/aeabi_idivmod.S
-aeabi_uidivmod.o:	${NETBSDSRCDIR}/sys/external/bsd/compiler_rt/dist/lib/builtins/arm/aeabi_uidivmod.S
-aeabi_uldivmod.o:	${NETBSDSRCDIR}/sys/external/bsd/compiler_rt/dist/lib/builtins/arm/aeabi_uldivmod.S
+#strcat.o:	${NETBSDSRCDIR}/common/lib/libc/string/strcat.c
+__aeabi_idiv0.o:	${NETBSDSRCDIR}/common/lib/libc/arch/arm/gen/__aeabi_idiv0.c
+__aeabi_ldiv0.o:	${NETBSDSRCDIR}/common/lib/libc/arch/arm/gen/__aeabi_ldiv0.c
+__aeabi_uldivmod.o:	${NETBSDSRCDIR}/common/lib/libc/arch/arm/quad/__aeabi_uldivmod.S
+divide.o:	${NETBSDSRCDIR}/common/lib/libc/arch/arm/gen/divide.S
+divsi3.o:	${NETBSDSRCDIR}/common/lib/libc/arch/arm/gen/divsi3.S
+udivsi3.o:	${NETBSDSRCDIR}/common/lib/libc/arch/arm/gen/udivsi3.S
 
 # the following is required by pre_init.c
 strncmp.o:	${NETBSDSRCDIR}/common/lib/libc/string/strncmp.c
+
+# these are required by kprintn.o:
+udivdi3.o:	${NETBSDSRCDIR}/common/lib/libc/quad/udivdi3.c
+umoddi3.o:	${NETBSDSRCDIR}/common/lib/libc/quad/umoddi3.c
+qdivrem.o:	${NETBSDSRCDIR}/common/lib/libc/quad/qdivrem.c
+
+CPPFLAGS.__aeabi_idiv0.c+= -D_STANDALONE
+CPPFLAGS.__aeabi_ldiv0.c+= -D_STANDALONE
 
 # LSC: putchar and kputc have the same signature. A bit hackish.
 CPPFLAGS.subr_prf.c+= -Dputchar=kputc
@@ -88,9 +90,7 @@ PROCOFFSETSCF=procoffsets.cf
 procoffsets.h: ${PROCOFFSETSCF} kernel.h proc.h stackframe.h archtypes.h
 	${_MKTARGET_CREATE}
 	${TOOL_CAT} ${HERE}/${PROCOFFSETSCF} | \
-		${TOOL_GENASSYM} -- ${CC} ${CFLAGS:N-Wa,*} \
-		${CPPFLAGS} ${PROF} ${${USE_BITCODE:Uno} == "yes":? -fno-lto:} \
-		${GENASSYM_CPPFLAGS} >$@.tmp && \
+	  ${TOOL_GENASSYM} -- ${CC} ${CFLAGS} ${CPPFLAGS} ${PROF} >$@.tmp && \
 	  mv -f $@.tmp $@ 
 
 sconst.h: procoffsets.h

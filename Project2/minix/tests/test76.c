@@ -1,4 +1,5 @@
 /* Tests for interrupting VFS calls - by D.C. van Moolenbroek */
+/* This test needs to be run as root; otherwise, openpty() won't work. */
 #include <stdio.h>
 #include <sys/time.h>
 #include <sys/wait.h>
@@ -47,7 +48,7 @@ test76a(void)
 
 	memset(&it, 0, sizeof(it));
 	it.it_value.tv_sec = 0;
-	it.it_value.tv_usec = 100000;
+	it.it_value.tv_usec = 10000;
 	if (setitimer(ITIMER_REAL, &it, NULL) < 0) e(2);
 
 	/* First try without any file descriptors. */
@@ -124,7 +125,7 @@ test76b(void)
 
 	memset(&it, 0, sizeof(it));
 	it.it_value.tv_sec = 0;
-	it.it_value.tv_usec = 100000;
+	it.it_value.tv_usec = 10000;
 	if (setitimer(ITIMER_REAL, &it, NULL) < 0) e(4);
 
 	/*
@@ -145,7 +146,7 @@ test76b(void)
 
 	memset(&it, 0, sizeof(it));
 	it.it_value.tv_sec = 0;
-	it.it_value.tv_usec = 100000;
+	it.it_value.tv_usec = 10000;
 	if (setitimer(ITIMER_REAL, &it, NULL) < 0) e(8);
 
 	/* Now interrupt a write attempt on a full pipe. */
@@ -157,7 +158,7 @@ test76b(void)
 
 	memset(&it, 0, sizeof(it));
 	it.it_value.tv_sec = 0;
-	it.it_value.tv_usec = 100000;
+	it.it_value.tv_usec = 10000;
 	if (setitimer(ITIMER_REAL, &it, NULL) < 0) e(12);
 
 	/* Now interrupt a read on an empty pipe. */
@@ -204,7 +205,7 @@ test76c(void)
 
 	memset(&it, 0, sizeof(it));
 	it.it_value.tv_sec = 0;
-	it.it_value.tv_usec = 100000;
+	it.it_value.tv_usec = 10000;
 	if (setitimer(ITIMER_REAL, &it, NULL) < 0) e(5);
 
 	/* This will block until the timer fires. */

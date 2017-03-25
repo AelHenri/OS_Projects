@@ -5,47 +5,42 @@
 
 .for f in \
 	memchr.o
-${f} ${f:C/\.o/.go/}:	${LIBCOMMONCDIR}/string/${f:C/\.o/.c/}
+${f}:	${LIBCOMMONCDIR}/string/${f:C/\.o/.c/}
 OBJS+=	${f}
 CLEANFILES+= ${f}
 .endfor
 
 .for f in \
-	lshldi3.o
-${f} ${f:C/\.o/.go/}:	${LIBCOMMONCDIR}/quad/${f:C/\.o/.c/}
+	byte_swap_2.o byte_swap_4.o divsi3.o divide.o udivsi3.o
+${f}:	${LIBCOMMONCARCHDIR}/gen/${f:C/\.o/.S/}
 OBJS+=	${f}
 CLEANFILES+= ${f}
 .endfor
 
-.for f in \
-	byte_swap_2.o byte_swap_4.o 
-${f} ${f:C/\.o/.go/}:	${LIBCOMMONCARCHDIR}/gen/${f:C/\.o/.S/}
-OBJS+=	${f}
-CLEANFILES+= ${f}
-.endfor
+CPPFLAGS.byte_swap_4.S+= -D_STANDALONE
 
 .for f in \
 	__aeabi_idiv0.o __aeabi_ldiv0.o
-${f} ${f:C/\.o/.go/}:	${LIBCOMMONCARCHDIR}/gen/${f:C/\.o/.c/}
+${f}:	${LIBCOMMONCARCHDIR}/gen/${f:C/\.o/.c/}
 OBJS+=	${f}
 CLEANFILES+= ${f}
 .endfor
 
-CPPFLAGS.__aeabi_idiv0.c+= -D_STANDALONE -I${NETBSDSRCDIR}/sys
-CPPFLAGS.__aeabi_ldiv0.c+= -D_STANDALONE -I${NETBSDSRCDIR}/sys
+CPPFLAGS.__aeabi_idiv0.c+= -D_STANDALONE
+CPPFLAGS.__aeabi_ldiv0.c+= -D_STANDALONE
 
-#.for f in \
-#	__aeabi_ldivmod.o __aeabi_uldivmod.o
-#${f} ${f:C/\.o/.go/}:	${LIBCOMMONCARCHDIR}/quad/${f:C/\.o/.S/}
-#OBJS+=	${f}
-#CLEANFILES+= ${f}
-#.endfor
+.for f in \
+	__aeabi_ldivmod.o __aeabi_uldivmod.o
+${f}:	${LIBCOMMONCARCHDIR}/quad/${f:C/\.o/.S/}
+OBJS+=	${f}
+CLEANFILES+= ${f}
+.endfor
 
 .for f in \
 	memcmp.o memcpy.o memmove.o memset.o \
 	strcat.o strchr.o strcmp.o strcpy.o strlcpy.o strlen.o strncpy.o \
 	strncmp.o strrchr.o strcpy_arm.o
-${f} ${f:C/\.o/.go/}:	${LIBCOMMONCARCHDIR}/string/${f:C/\.o/.S/}
+${f}:	${LIBCOMMONCARCHDIR}/string/${f:C/\.o/.S/}
 OBJS+=	${f}
 CLEANFILES+= ${f}
 .endfor
@@ -58,7 +53,7 @@ CPPFLAGS.strcpy_arm.S+= -DSTRLCPY -D_LIBC
 #
 .for f in \
 	alloca.o
-${f} ${f:C/\.o/.go/}:	${LIBCARCHDIR}/gen/${f:C/\.o/.S/}
+${f}:	${LIBCARCHDIR}/gen/${f:C/\.o/.S/}
 OBJS+=	${f}
 CLEANFILES+= ${f}
 .endfor
@@ -72,14 +67,7 @@ CLEANFILES+= ${f}
 	__aeabi_dcmpun.o __aeabi_fcmpun.o
 CPPFLAGS.${f:C/\.o/.c/}+= -I${LIBCARCHDIR}/softfloat -I${LIBCDIR}/softfloat
 CPPFLAGS.${f:C/\.o/.c/}+= -DSOFTFLOAT_FOR_GCC
-${f} ${f:C/\.o/.go/}:	${LIBCARCHDIR}/softfloat/${f:C/\.o/.c/}
-OBJS+=	${f}
-CLEANFILES+= ${f}
-.endfor
-
-.for f in \
-	aeabi_uidivmod.o aeabi_ldivmod.o aeabi_uldivmod.o aeabi_idivmod.o
-${f} ${f:C/\.o/.go/}:	${NETBSDSRCDIR}/sys/external/bsd/compiler_rt/dist/lib/builtins/arm/${f:C/\.o/.S/}
+${f}:	${LIBCARCHDIR}/softfloat/${f:C/\.o/.c/}
 OBJS+=	${f}
 CLEANFILES+= ${f}
 .endfor
@@ -89,7 +77,7 @@ CLEANFILES+= ${f}
 	fpgetsticky.o fpsetsticky.o
 CPPFLAGS.${f:C/\.o/.c/}+= -I${LIBCARCHDIR}/softfloat -I${LIBCDIR}/softfloat
 CPPFLAGS.${f:C/\.o/.c/}+= -DSOFTFLOAT_FOR_GCC
-${f} ${f:C/\.o/.go/}:	${LIBCDIR}/softfloat/${f:C/\.o/.c/}
+${f}:	${LIBCDIR}/softfloat/${f:C/\.o/.c/}
 OBJS+=	${f}
 CLEANFILES+= ${f}
 .endfor
@@ -99,7 +87,7 @@ SOFTFLOAT_BITS?=64
 	softfloat.o
 CPPFLAGS.${f:C/\.o/.c/}+= -I${LIBCARCHDIR}/softfloat -I${LIBCDIR}/softfloat
 CPPFLAGS.${f:C/\.o/.c/}+= -DSOFTFLOAT_FOR_GCC
-${f} ${f:C/\.o/.go/}:	${LIBCDIR}/softfloat/bits${SOFTFLOAT_BITS}/${f:C/\.o/.c/}
+${f}:	${LIBCDIR}/softfloat/bits${SOFTFLOAT_BITS}/${f:C/\.o/.c/}
 OBJS+=	${f}
 CLEANFILES+= ${f}
 .endfor

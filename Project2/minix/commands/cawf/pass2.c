@@ -36,7 +36,10 @@
  *		 text into words for pass 3
  */
 
-void Pass2(unsigned char *line) {
+void
+Pass2(line)
+	unsigned char *line;
+{
 	int brk;			/* request break status */
 	unsigned char buf[MAXLINE];	/* working buffer */
 	unsigned char c;		/* character buffer */
@@ -104,7 +107,7 @@ void Pass2(unsigned char *line) {
 		     * Output each word of the line as "<length> <word>".
 		     */
 			for (s1 = line;;) {
-				while (*s1 == ' ')
+				while (*s1 && *s1 == ' ')
 					s1++;
 				if (*s1 == '\0')
 					break;

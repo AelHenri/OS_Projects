@@ -493,7 +493,10 @@ struct vir_region *map_page_region(struct vmproc *vmp, vir_bytes minv,
 		if(map_handle_memory(vmp, newregion, 0, length, 1,
 			NULL, 0, 0) != OK) {
 			printf("VM: map_page_region: prealloc failed\n");
-			map_free(newregion);
+			free(newregion->physblocks);
+			USE(newregion,
+				newregion->physblocks = NULL;);
+			SLABFREE(newregion);
 			return NULL;
 		}
 	}
@@ -783,7 +786,6 @@ int map_pin_memory(struct vmproc *vmp)
 	region_iter iter;
 	region_start_iter_least(&vmp->vm_regions_avl, &iter);
 	/* Scan all memory regions. */
-	pt_assert(&vmp->vm_pt);
 	while((vr = region_get_iter(&iter))) {
 		/* Make sure region is mapped to physical memory and writable.*/
 		r = map_handle_memory(vmp, vr, 0, vr->length, 1, NULL, 0, 0);
@@ -792,7 +794,6 @@ int map_pin_memory(struct vmproc *vmp)
 		}
 		region_incr_iter(&iter);
 	}
-	pt_assert(&vmp->vm_pt);
 	return OK;
 }
 
@@ -935,30 +936,28 @@ int map_proc_copy(struct vmproc *dst, struct vmproc *src)
 /* Copy all the memory regions from the src process to the dst process. */
 	region_init(&dst->vm_regions_avl);
 
-	return map_proc_copy_range(dst, src, NULL, NULL);
+	return map_proc_copy_from(dst, src, NULL);
 }
 
 /*========================================================================*
- *			     map_proc_copy_range			     	  *
+ *			     map_proc_copy_from			     	  *
  *========================================================================*/
-int map_proc_copy_range(struct vmproc *dst, struct vmproc *src,
-	struct vir_region *start_src_vr, struct vir_region *end_src_vr)
+int map_proc_copy_from(struct vmproc *dst, struct vmproc *src,
+	struct vir_region *start_src_vr)
 {
 	struct vir_region *vr;
 	region_iter v_iter;
 
 	if(!start_src_vr)
 		start_src_vr = region_search_least(&src->vm_regions_avl);
-	if(!end_src_vr)
-		end_src_vr = region_search_greatest(&src->vm_regions_avl);
 
-	assert(start_src_vr && end_src_vr);
+	assert(start_src_vr);
 	assert(start_src_vr->parent == src);
 	region_start_iter(&src->vm_regions_avl, &v_iter,
 		start_src_vr->vaddr, AVL_EQUAL);
 	assert(region_get_iter(&v_iter) == start_src_vr);
 
-	/* Copy source regions into the destination. */
+	/* Copy source regions after the destination's last region (if any). */
 
 	SANITYCHECK(SCL_FUNCTIONS);
 
@@ -986,9 +985,6 @@ int map_proc_copy_range(struct vmproc *dst, struct vmproc *src,
 		}
 	}
 #endif
-		if(vr == end_src_vr) {
-			break;
-		}
 		region_incr_iter(&v_iter);
 	}
 
@@ -1287,34 +1283,12 @@ int map_unmap_range(struct vmproc *vmp, vir_bytes unmap_start, vir_bytes length)
 			return r;
 		}
 
-		if(nextvr) {
-			region_start_iter(&vmp->vm_regions_avl, &v_iter, nextvr->vaddr, AVL_EQUAL);
-			assert(region_get_iter(&v_iter) == nextvr);
-		}
+		region_start_iter(&vmp->vm_regions_avl, &v_iter, nextvr->vaddr, AVL_EQUAL);
+		assert(region_get_iter(&v_iter) == nextvr);
 	}
 
 	return OK;
 
-}
-
-/*========================================================================*
- *			  map_region_lookup_type			  *
- *========================================================================*/
-struct vir_region* map_region_lookup_type(struct vmproc *vmp, u32_t type)
-{
-	struct vir_region *vr;
-	struct phys_region *pr;
-	vir_bytes used = 0, weighted = 0;
-	region_iter v_iter;
-	region_start_iter_least(&vmp->vm_regions_avl, &v_iter);
-
-	while((vr = region_get_iter(&v_iter))) {
-		region_incr_iter(&v_iter);
-		if(vr->flags & type)
-			return vr;
-	}
-
-	return NULL;
 }
 
 /*========================================================================*
@@ -1359,8 +1333,6 @@ void get_usage_info_kernel(struct vm_usage_info *vui)
 	memset(vui, 0, sizeof(*vui));
 	vui->vui_total = kernel_boot_info.kernel_allocated_bytes +
 		kernel_boot_info.kernel_allocated_bytes_dynamic;
-	/* All of the kernel's pages are actually mapped in. */
-	vui->vui_virtual = vui->vui_mvirtual = vui->vui_total;
 }
 
 static void get_usage_info_vm(struct vm_usage_info *vui)
@@ -1368,25 +1340,6 @@ static void get_usage_info_vm(struct vm_usage_info *vui)
 	memset(vui, 0, sizeof(*vui));
 	vui->vui_total = kernel_boot_info.vm_allocated_bytes +
 		get_vm_self_pages() * VM_PAGE_SIZE;
-	/* All of VM's pages are actually mapped in. */
-	vui->vui_virtual = vui->vui_mvirtual = vui->vui_total;
-}
-
-/*
- * Return whether the given region is for the associated process's stack.
- * Unfortunately, we do not actually have this information: in most cases, VM
- * is not responsible for actually setting up the stack in the first place.
- * Fortunately, this is only for statistical purposes, so we can get away with
- * guess work.  However, it is certainly not accurate in the light of userspace
- * thread stacks, or if the process is messing with its stack in any way, or if
- * (currently) VFS decides to put the stack elsewhere, etcetera.
- */
-static int
-is_stack_region(struct vir_region * vr)
-{
-
-	return (vr->vaddr == VM_STACKTOP - DEFAULT_STACK_LIMIT &&
-	    vr->length == DEFAULT_STACK_LIMIT);
 }
 
 /*========================================================================*
@@ -1413,15 +1366,8 @@ void get_usage_info(struct vmproc *vmp, struct vm_usage_info *vui)
 	}
 
 	while((vr = region_get_iter(&v_iter))) {
-		vui->vui_virtual += vr->length;
-		vui->vui_mvirtual += vr->length;
 		for(voffset = 0; voffset < vr->length; voffset += VM_PAGE_SIZE) {
-			if(!(ph = physblock_get(vr, voffset))) {
-				/* mvirtual: discount unmapped stack pages. */
-				if (is_stack_region(vr))
-					vui->vui_mvirtual -= VM_PAGE_SIZE;
-				continue;
-			}
+			if(!(ph = physblock_get(vr, voffset))) continue;
 			/* All present pages are counted towards the total. */
 			vui->vui_total += VM_PAGE_SIZE;
 
@@ -1436,14 +1382,6 @@ void get_usage_info(struct vmproc *vmp, struct vm_usage_info *vui)
 		}
 		region_incr_iter(&v_iter);
 	}
-
-	/*
-	 * Also include getrusage resource information, so that the MIB service
-	 * need not make more than one call to VM for each process entry.
-	 */
-	vui->vui_maxrss = vmp->vm_total_max / 1024L;
-	vui->vui_minflt = vmp->vm_minor_page_fault;
-	vui->vui_majflt = vmp->vm_major_page_fault;
 }
 
 /*===========================================================================*

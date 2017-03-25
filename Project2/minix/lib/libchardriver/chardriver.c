@@ -102,13 +102,13 @@ void chardriver_announce(void)
   int r;
   char key[DS_MAX_KEYLEN];
   char label[DS_MAX_KEYLEN];
-  const char *driver_prefix = "drv.chr.";
+  char *driver_prefix = "drv.chr.";
 
   /* Callers are allowed to use ipc_sendrec to communicate with drivers.
    * For this reason, there may blocked callers when a driver restarts.
    * Ask the kernel to unblock them (if any).
    */
-  if ((r = sys_statectl(SYS_STATE_CLEAR_IPC_REFS, 0, 0)) != OK)
+  if ((r = sys_statectl(SYS_STATE_CLEAR_IPC_REFS)) != OK)
 	panic("chardriver_announce: sys_statectl failed: %d", r);
 
   /* Publish a driver up event. */
@@ -276,12 +276,12 @@ static void chardriver_reply(message *mess, int ipc_status, int r)
 /*===========================================================================*
  *				do_open					     *
  *===========================================================================*/
-static int do_open(const struct chardriver *cdp, message *m_ptr)
+static int do_open(struct chardriver *cdp, message *m_ptr)
 {
 /* Open a minor device. */
   endpoint_t user_endpt;
   devminor_t minor;
-  int r, bits;
+  int r, access;
 
   /* Default action if no open hook is in place. */
   if (cdp->cdr_open == NULL)
@@ -289,10 +289,10 @@ static int do_open(const struct chardriver *cdp, message *m_ptr)
 
   /* Call the open hook. */
   minor = m_ptr->m_vfs_lchardriver_openclose.minor;
-  bits = m_ptr->m_vfs_lchardriver_openclose.access;
+  access = m_ptr->m_vfs_lchardriver_openclose.access;
   user_endpt = m_ptr->m_vfs_lchardriver_openclose.user;
 
-  r = cdp->cdr_open(minor, bits, user_endpt);
+  r = cdp->cdr_open(minor, access, user_endpt);
 
   /* If the device has been cloned, mark the new minor as open too. */
   if (r >= 0 && (r & CDEV_CLONED)) {
@@ -307,7 +307,7 @@ static int do_open(const struct chardriver *cdp, message *m_ptr)
 /*===========================================================================*
  *				do_close				     *
  *===========================================================================*/
-static int do_close(const struct chardriver *cdp, message *m_ptr)
+static int do_close(struct chardriver *cdp, message *m_ptr)
 {
 /* Close a minor device. */
   devminor_t minor;
@@ -325,8 +325,7 @@ static int do_close(const struct chardriver *cdp, message *m_ptr)
 /*===========================================================================*
  *				do_trasnfer				     *
  *===========================================================================*/
-static int do_transfer(const struct chardriver *cdp, message *m_ptr,
-	int do_write)
+static int do_transfer(struct chardriver *cdp, message *m_ptr, int do_write)
 {
 /* Carry out a read or write task request. */
   devminor_t minor;
@@ -360,7 +359,7 @@ static int do_transfer(const struct chardriver *cdp, message *m_ptr,
 /*===========================================================================*
  *				do_ioctl				     *
  *===========================================================================*/
-static int do_ioctl(const struct chardriver *cdp, message *m_ptr)
+static int do_ioctl(struct chardriver *cdp, message *m_ptr)
 {
 /* Carry out an I/O control task request. */
   devminor_t minor;
@@ -389,7 +388,7 @@ static int do_ioctl(const struct chardriver *cdp, message *m_ptr)
 /*===========================================================================*
  *				do_cancel				     *
  *===========================================================================*/
-static int do_cancel(const struct chardriver *cdp, message *m_ptr)
+static int do_cancel(struct chardriver *cdp, message *m_ptr)
 {
 /* Cancel a suspended (read, write, ioctl) task request. The original request
  * may already have finished, in which case no reply should be sent.
@@ -413,7 +412,7 @@ static int do_cancel(const struct chardriver *cdp, message *m_ptr)
 /*===========================================================================*
  *				do_select				     *
  *===========================================================================*/
-static int do_select(const struct chardriver *cdp, message *m_ptr)
+static int do_select(struct chardriver *cdp, message *m_ptr)
 {
 /* Perform a select query on a minor device. */
   devminor_t minor;
@@ -452,13 +451,12 @@ static void do_block_open(message *m_ptr, int ipc_status)
 /*===========================================================================*
  *				chardriver_process			     *
  *===========================================================================*/
-void chardriver_process(const struct chardriver *cdp, message *m_ptr,
-	int ipc_status)
+void chardriver_process(struct chardriver *cdp, message *m_ptr, int ipc_status)
 {
 /* Call the appropiate driver function, based on the type of request. Send a
  * reply to the caller if necessary.
  */
-  int r;
+  int r, reply;
 
   /* Check for notifications first. We never reply to notifications. */
   if (is_ipc_notify(ipc_status)) {
@@ -546,7 +544,7 @@ void chardriver_terminate(void)
 /*===========================================================================*
  *				chardriver_task				     *
  *===========================================================================*/
-void chardriver_task(const struct chardriver *cdp)
+void chardriver_task(struct chardriver *cdp)
 {
 /* Main program of any character device driver task. */
   int r, ipc_status;
@@ -572,7 +570,7 @@ void chardriver_task(const struct chardriver *cdp)
 /*===========================================================================*
  *				chardriver_get_minor			     *
  *===========================================================================*/
-int chardriver_get_minor(const message *m, devminor_t *minor)
+int chardriver_get_minor(message *m, devminor_t *minor)
 {
   assert(NULL != m);
   assert(NULL != minor);

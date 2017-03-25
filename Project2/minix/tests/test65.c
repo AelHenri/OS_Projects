@@ -105,14 +105,19 @@ create_partition(void)
 void
 verify_tools(void)
 {
-	int status1, status2;
+	int status;
 
 	subtest = 1;
-
-	status1 = system("which mkntfs > /dev/null 2>&1");
-	status2 = system("which ntfs-3g > /dev/null 2>&1");
-	if (WEXITSTATUS(status1) != 0 || WEXITSTATUS(status2) != 0)
-		skip("mkntfs or ntfs-3g not found, skipping test");
+	status = system("which mkntfs > /dev/null 2>&1");
+	if (WEXITSTATUS(status) != 0) {
+		skip("mkntfs not found. Please install ntfsprogs (pkgin in "
+			"ntfsprogs)");
+	}
+	status = system("which ntfs-3g > /dev/null 2>&1");
+	if (WEXITSTATUS(status) != 0) {
+		skip("ntfs-3g not found. Please install fuse-ntfs-3g-1.1120 "
+			"(pkgin in fuse-ntfs-3g-1.1120)");
+	}
 }
 
 int

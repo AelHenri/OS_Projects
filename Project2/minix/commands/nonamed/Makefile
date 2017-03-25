@@ -1,4 +1,4 @@
 PROG=	nonamed
-MAN=	nonamed.8
+MAN=
 
 .include <bsd.prog.mk>

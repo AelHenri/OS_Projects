@@ -31,19 +31,20 @@
 #include "cawf.h"
 #include <ctype.h>
 
-static void Setroman(void);
+static void Setroman();
 
 
 /*
  * Asmname(s, c) - assemble name
  */
 
-int Asmname(unsigned char *s, unsigned char *c) {
-/* pointer to name s
- * code destination (c[3])
- */
+Asmname(s, c)
+	unsigned char *s;		/* pointer to name */
+	unsigned char *c;		/* code destination (c[3]) */
+{
+
 	c[1] = c[2] = '\0';
-	while (*s == ' ')
+	while (*s && *s == ' ')
 		s++;
 	if ((c[0] = *s) == '\0')
 		return(0);
@@ -55,8 +56,10 @@ int Asmname(unsigned char *s, unsigned char *c) {
  * Delstr(sx) - delete string
  */
 
-void Delstr(int sx) {
-/* string index sx */
+void
+Delstr(sx)
+	int sx;				/* string index */
+{
 	char buf[MAXLINE];		/* message buffer */
 
 	if (sx >= Nstr) {
@@ -76,7 +79,9 @@ void Delstr(int sx) {
  * Endword() - end a word
  */
 
-void Endword(void) {
+void
+Endword()
+{
 	if (Fontstat != 'R')
 		Setroman();
 	Word[Wordx] = '\0';
@@ -88,13 +93,13 @@ void Endword(void) {
  *			   optionally enter it
  */
 
-int Findchar(unsigned char *nm, int l, unsigned char *s, int e) {
-/* character name nm
- * effective length l
- * value string s
- * e = 0 = find, don't enter
- * e = 1 = don't find, enter
- */
+Findchar(nm, l, s, e)
+	unsigned char *nm;		/* character name */
+	int l;				/* effective length */
+	unsigned char *s;		/* value string */
+	int e;				/* 0 = find, don't enter
+					 * 1 = don't find, enter */
+{
 	int cmp, hi, low, mid;
 	unsigned char c[3];
 
@@ -142,12 +147,12 @@ new_char:
  * Findhy(s, l, e) - find and optionally enter hyphen
  */
 
-int Findhy(unsigned char *s, int l, int e) {
-/* value string s
- * equivalent length l
- * e = 0 = find, don't enter
- * e = 1 = enter, don't find
- */
+Findhy(s, l, e)
+	unsigned char *s;		/* value string */
+	int l;				/* equivalent length */
+	int e;				/* 0 = find, don't enter
+					 * 1 = enter, don't find */
+{
 	int i;
 
 	for (i = 0; i < Nhy; i++) {
@@ -178,12 +183,13 @@ int Findhy(unsigned char *s, int l, int e) {
  * Findstr(nm, s, e) - find and  optionally enter string in Str[]
  */
 
-unsigned char *Findstr(unsigned char *nm, unsigned char *s, int e) {
-/* 2 character string name nm
- * string value s
- * e = 0 = find, don't enter
- * e = 1 = enter, don't find
- */
+unsigned char *
+Findstr(nm, s, e)
+	unsigned char *nm;		/* 2 character string name */
+	unsigned char *s;		/* string value */
+	int e;				/* 0 = find, don't enter
+					 * 1 = enter, don't find */
+{
 	unsigned char c[3];		/* character buffer */
 	int cmp, hi, low, mid;		/* binary search controls */
 	int i;				/* temporary indexes */
@@ -243,7 +249,9 @@ new_string:
  * Setroman() - set Roman font
  */
 
-static void Setroman(void) {
+static void
+Setroman()
+{
 	int i;
 
 	if ((Wordx + Fstr.rl) >= MAXLINE)
@@ -263,7 +271,10 @@ static void Setroman(void) {
  * Str2word(s, len) - copy len characters from string to Word[]
  */
 
-int Str2word(unsigned char *s, int len) {
+Str2word(s, len)
+	unsigned char *s;
+	int len;
+{
 	int i;
 
 	for (; len > 0; len--, s++) {

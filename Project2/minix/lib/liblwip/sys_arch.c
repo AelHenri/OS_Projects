@@ -2,11 +2,14 @@
 #include <minix/sysutil.h>
 #include <errno.h>
 
-#include "lwip/sys.h"
-
 u32_t sys_jiffies(void)
 {
-	return getticks();
+	clock_t ticks;
+
+	if (getticks(&ticks) == OK)
+		return  ticks;
+	else
+		panic("getuptime() failed\n");
 }
 
 u32_t sys_now(void)

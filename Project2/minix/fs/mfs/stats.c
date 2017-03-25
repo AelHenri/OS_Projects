@@ -81,9 +81,29 @@ int map;			/* IMAP (inode map) or ZMAP (zone map) */
 
       if (b >= map_bits) break;
     }
-    put_block(bp);
+    put_block(bp, MAP_BLOCK);
     ++block;
     word = 0;
   } while (--bcount > 0);
-  return free_bits;
+  return free_bits;        /* no bit could be allocated */
+}
+
+
+/*===========================================================================*
+ *				blockstats				     *
+ *===========================================================================*/
+void fs_blockstats(u64_t *blocks, u64_t *free, u64_t *used)
+{
+  struct super_block *sp;
+
+  sp = get_super(fs_dev);
+
+  assert(sp);
+  assert(!sp->s_log_zone_size);
+
+  *blocks = sp->s_zones;
+  *used = get_used_blocks(sp);
+  *free = *blocks - *used;
+
+  return;
 }

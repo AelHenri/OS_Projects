@@ -24,8 +24,6 @@
 #include <net/gen/inet.h>
 #include <net/gen/socket.h>
 #include <netdb.h>
-#include <arpa/inet.h>
-#include <minix/minlib.h>
 
 /* Default service access file. */
 static const char *path_servacces = _PATH_SERVACCES;
@@ -78,12 +76,12 @@ static int netspec(char *word, ipaddr_t *addr, ipaddr_t *mask)
     if ((slash= strchr(word, '/')) == NULL) slash= S32;
 
     *slash= 0;
-    r= inet_aton(word, (struct in_addr *)addr);
+    r= inet_aton(word, addr);
     *slash++= '/';
     if (!r) return 0;
 
     r= 0;
-    while ((unsigned int)(*slash - '0') < 10u) {
+    while ((*slash - '0') < 10u) {
 	r= 10*r + (*slash++ - '0');
 	if (r > 32) return 0;
     }
@@ -150,7 +148,7 @@ static int get_name(ipaddr_t addr, char *name)
 	    }
 	}
     }
-    strcpy(name, inet_ntoa(*(struct in_addr *)&addr));
+    strcpy(name, inet_ntoa(addr));
     return 0;
 }
 
@@ -275,12 +273,12 @@ int servxcheck(unsigned long peer, const char *service,
     return state == PASS;
 }
 
-const char *servxfile(const char *file)
+char *servxfile(const char *file)
 /* Specify a file to use for the access checks other than the default.  Return
  * the old path.
  */
 {
     const char *oldpath= path_servacces;
     path_servacces= file;
-    return oldpath;
+    return (char *) oldpath;	/* (avoid const poisoning) */
 }

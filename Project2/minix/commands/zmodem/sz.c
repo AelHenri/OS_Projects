@@ -630,7 +630,7 @@ int wctxpn(char *name)
 	while (q < (txbuf + 1024))
 		*q++ = 0;
 	if (!Ascii && (in!=stdin) && *name && fstat(fileno(in), &f)!= -1)
-		sprintf(p, "%llu %llo %o 0 %d %ld", f.st_size, f.st_mtime,
+		sprintf(p, "%llu %o %o 0 %d %ld", f.st_size, f.st_mtime,
 		  f.st_mode, Filesleft, Totalleft);
 	Totalleft -= f.st_size;
 	if (--Filesleft <= 0)
@@ -726,8 +726,7 @@ int wctx(long flen)
 		fflush(stdout);
 		++attempts;
 	}
-		while ((firstch = readline(Rxtimeout)) != ACK &&
-		    attempts < RETRYMAX);
+		while ((firstch=(readline(Rxtimeout)) != ACK) && attempts < RETRYMAX);
 	if (attempts == RETRYMAX) {
 		zperr("No ACK on EOT");
 		return ERROR;
@@ -1011,7 +1010,7 @@ void canit()
 	raw_wbuf(strlen(canistr), canistr);
 	purgeline();
 #else
-	printf("%s", canistr);
+	printf(canistr);
 	fflush(stdout);
 #endif
 }
@@ -1380,7 +1379,7 @@ gotack:
 	if (Test) {
 		if ( --tleft)
 			while (tcount < 20000) {
-				printf("%s", qbf); fflush(stdout);
+				printf(qbf); fflush(stdout);
 				tcount += strlen(qbf);
 #ifdef READCHECK
 				while (rdchk(iofd)) {

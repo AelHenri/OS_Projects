@@ -44,10 +44,11 @@ static int Convfont(char *nm, char *s, char **fn, unsigned char **fi);
  * Convstr(s, len) - convert a string
  */
 
-static unsigned char *Convstr(char *s, int *len) {
-/* input string s
- * length of result len
- */
+static unsigned char *
+Convstr(s, len)
+	char *s;			/* input string */
+	int *len;			/* length of result */
+{
 	int c;				/* character assembly */
 	unsigned char *cp;		/* temporary character pointer */
 	char *em;			/* error message */
@@ -156,12 +157,13 @@ non_hex_char:
  * Convfont(nm, s, fn, fi) - convert a font for a device
  */
 
-static int Convfont(char* nm, char *s, char **fn, unsigned char **fi) {
-/* output device name nm
- * font definition string s
- * font name address fn
- * initialization string address fi
- */
+static int
+Convfont(nm, s, fn, fi)
+	char *nm;			/* output device name */
+	char *s;			/* font definition string */
+	char **fn;			/* font name address */
+	unsigned char **fi;		/* initialization string address */
+{
 	char *cp;			/* temporary character pointer */
 	int len;			/* length */
 /*
@@ -193,7 +195,9 @@ static int Convfont(char* nm, char *s, char **fn, unsigned char **fi) {
  * Defdev() - define the output device
  */
 
-int Defdev(void) {
+int
+Defdev()
+{
 	unsigned char *fi = NULL;	/* last font initialization string */
 	char *fn = NULL;		/* font name */
 	int fd = 0;			/* found-device flag */

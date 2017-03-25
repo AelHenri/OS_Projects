@@ -1,3 +1,4 @@
+#define __USE_MISC
 #define _SYSTEM	1
 #define _MINIX_SYSTEM	1
 
@@ -63,23 +64,10 @@ int semctl(int semid, int semnum, int cmd, ...)
 	m.m_lc_ipc_semctl.num = semnum;
 	m.m_lc_ipc_semctl.cmd = cmd;
 	va_start(ap, cmd);
-	switch (cmd) {
-	case SETVAL:
-		m.m_lc_ipc_semctl.opt = (vir_bytes)va_arg(ap, int);
-		break;
-	case IPC_STAT:
-	case IPC_SET:
-	case IPC_INFO:
-	case SEM_INFO:
-	case SEM_STAT:
-	case GETALL:
-	case SETALL:
-		m.m_lc_ipc_semctl.opt = (vir_bytes)va_arg(ap, void *);
-		break;
-	default:
-		m.m_lc_ipc_semctl.opt = 0;
-		break;
-	}
+	if (cmd == IPC_STAT || cmd == IPC_SET || cmd == IPC_INFO ||
+		cmd == SEM_INFO || cmd == SEM_STAT || cmd == GETALL ||
+		cmd == SETALL || cmd == SETVAL)
+		m.m_lc_ipc_semctl.opt = (long) va_arg(ap, long);
 	va_end(ap); 
 
 	r = _syscall(ipc_pt, IPC_SEMCTL, &m);

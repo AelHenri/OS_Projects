@@ -28,7 +28,7 @@ mode_t get_mode(struct inode *ino, int mode)
   else
 	mode = S_IFREG | (mode & sffs_params->p_file_mask);
 
-  if (read_only)
+  if (state.s_read_only)
 	mode &= ~(S_IWUSR | S_IWGRP | S_IWOTH);
 
   return mode;
@@ -37,14 +37,18 @@ mode_t get_mode(struct inode *ino, int mode)
 /*===========================================================================*
  *				do_stat					     *
  *===========================================================================*/
-int do_stat(ino_t ino_nr, struct stat *st)
+int do_stat(void)
 {
 /* Retrieve inode status.
  */
   struct inode *ino;
   struct sffs_attr attr;
+  struct stat stat;
   char path[PATH_MAX];
+  ino_t ino_nr;
   int r;
+
+  ino_nr = m_in.m_vfs_fs_stat.inode;
 
   /* Don't increase the inode refcount: it's already open anyway */
   if ((ino = find_inode(ino_nr)) == NULL)
@@ -56,40 +60,45 @@ int do_stat(ino_t ino_nr, struct stat *st)
   if ((r = verify_inode(ino, path, &attr)) != OK)
 	return r;
 
-  st->st_mode = get_mode(ino, attr.a_mode);
-  st->st_uid = sffs_params->p_uid;
-  st->st_gid = sffs_params->p_gid;
-  st->st_rdev = NO_DEV;
-  st->st_size = attr.a_size;
-  st->st_atimespec = attr.a_atime;
-  st->st_mtimespec = attr.a_mtime;
-  st->st_ctimespec = attr.a_ctime;
-  st->st_birthtimespec = attr.a_crtime;
+  memset(&stat, 0, sizeof(struct stat));
 
-  st->st_blocks = st->st_size / S_BLKSIZE;
-  if (st->st_size % S_BLKSIZE != 0)
-	st->st_blocks += 1;
+  stat.st_dev = state.s_dev;
+  stat.st_ino = ino_nr;
+  stat.st_mode = get_mode(ino, attr.a_mode);
+  stat.st_uid = sffs_params->p_uid;
+  stat.st_gid = sffs_params->p_gid;
+  stat.st_rdev = NO_DEV;
+  stat.st_size = attr.a_size;
+  stat.st_atimespec = attr.a_atime;
+  stat.st_mtimespec = attr.a_mtime;
+  stat.st_ctimespec = attr.a_ctime;
+  stat.st_birthtimespec = attr.a_crtime;
 
-  st->st_blksize = BLOCK_SIZE;
+  stat.st_blocks = stat.st_size / S_BLKSIZE;
+  if (stat.st_size % S_BLKSIZE != 0)
+	stat.st_blocks += 1;
+
+  stat.st_blksize = BLOCK_SIZE;
 
   /* We could make this more accurate by iterating over directory inodes'
    * children, counting how many of those are directories as well.
    * It's just not worth it.
    */
-  st->st_nlink = 0;
-  if (ino->i_parent != NULL) st->st_nlink++;
+  stat.st_nlink = 0;
+  if (ino->i_parent != NULL) stat.st_nlink++;
   if (IS_DIR(ino)) {
-	st->st_nlink++;
-	if (HAS_CHILDREN(ino)) st->st_nlink++;
+	stat.st_nlink++;
+	if (HAS_CHILDREN(ino)) stat.st_nlink++;
   }
 
-  return OK;
+  return sys_safecopyto(m_in.m_source, m_in.m_vfs_fs_stat.grant, 0,
+	(vir_bytes) &stat, sizeof(stat));
 }
 
 /*===========================================================================*
  *				do_chmod				     *
  *===========================================================================*/
-int do_chmod(ino_t ino_nr, mode_t *mode)
+int do_chmod(void)
 {
 /* Change file mode.
  */
@@ -98,10 +107,10 @@ int do_chmod(ino_t ino_nr, mode_t *mode)
   struct sffs_attr attr;
   int r;
 
-  if (read_only)
+  if (state.s_read_only)
 	return EROFS;
 
-  if ((ino = find_inode(ino_nr)) == NULL)
+  if ((ino = find_inode(m_in.m_vfs_fs_chmod.inode)) == NULL)
 	return EINVAL;
 
   if ((r = verify_inode(ino, path, NULL)) != OK)
@@ -109,7 +118,7 @@ int do_chmod(ino_t ino_nr, mode_t *mode)
 
   /* Set the new file mode. */
   attr.a_mask = SFFS_ATTR_MODE;
-  attr.a_mode = *mode; /* no need to convert in this direction */
+  attr.a_mode = m_in.m_vfs_fs_chmod.mode; /* no need to convert in this direction */
 
   if ((r = sffs_table->t_setattr(path, &attr)) != OK)
 	return r;
@@ -118,7 +127,7 @@ int do_chmod(ino_t ino_nr, mode_t *mode)
   if ((r = verify_path(path, ino, &attr, NULL)) != OK)
 	return r;
 
-  *mode = get_mode(ino, attr.a_mode);
+  m_out.m_fs_vfs_chmod.mode = get_mode(ino, attr.a_mode);
 
   return OK;
 }
@@ -126,7 +135,7 @@ int do_chmod(ino_t ino_nr, mode_t *mode)
 /*===========================================================================*
  *				do_utime				     *
  *===========================================================================*/
-int do_utime(ino_t ino_nr, struct timespec *atime, struct timespec *mtime)
+int do_utime(void)
 {
 /* Set file times.
  */
@@ -135,10 +144,10 @@ int do_utime(ino_t ino_nr, struct timespec *atime, struct timespec *mtime)
   struct sffs_attr attr;
   int r;
 
-  if (read_only)
+  if (state.s_read_only)
 	return EROFS;
 
-  if ((ino = find_inode(ino_nr)) == NULL)
+  if ((ino = find_inode(m_in.m_vfs_fs_utime.inode)) == NULL)
 	return EINVAL;
 
   if ((r = verify_inode(ino, path, NULL)) != OK)
@@ -146,31 +155,37 @@ int do_utime(ino_t ino_nr, struct timespec *atime, struct timespec *mtime)
 
   attr.a_mask = 0;
 
-  switch (atime->tv_nsec) {
+  switch(m_in.m_vfs_fs_utime.acnsec) {
   case UTIME_OMIT: /* do not touch */
 	break;
   case UTIME_NOW:
 	/* XXX VFS should have time() into ACTIME, for compat; we trust it! */
-	atime->tv_nsec = 0;
+	m_in.m_vfs_fs_utime.acnsec = 0;
 	/*FALLTHROUGH*/
   default:
-	attr.a_atime = *atime;
+	/* cases m_in.m_vfs_fs_utime.acnsec < 0 || m_in.m_vfs_fs_utime.acnsec >= 1E9
+	 * are caught by VFS to cooperate with old instances of EXT2
+	 */
+	attr.a_atime.tv_sec = m_in.m_vfs_fs_utime.actime;
+	attr.a_atime.tv_nsec = m_in.m_vfs_fs_utime.acnsec;
 	attr.a_mask |= SFFS_ATTR_ATIME;
 	break;
   }
-
-  switch (mtime->tv_nsec) {
+  switch(m_in.m_vfs_fs_utime.modnsec) {
   case UTIME_OMIT: /* do not touch */
 	break;
   case UTIME_NOW:
 	/* XXX VFS should have time() into MODTIME, for compat; we trust it! */
-	mtime->tv_nsec = 0;
+	m_in.m_vfs_fs_utime.modnsec = 0;
 	/*FALLTHROUGH*/
   default:
-	attr.a_mtime = *mtime;
+	/* cases m_in.m_vfs_fs_utime.modnsec < 0 || m_in.m_vfs_fs_utime.modnsec >= 1E9
+	 * are caught by VFS to cooperate with old instances
+	 */
+	attr.a_mtime.tv_sec = m_in.m_vfs_fs_utime.modtime;
+	attr.a_mtime.tv_nsec = m_in.m_vfs_fs_utime.modnsec;
 	attr.a_mask |= SFFS_ATTR_MTIME;
 	break;
   }
-
   return sffs_table->t_setattr(path, &attr);
 }

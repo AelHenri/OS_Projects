@@ -21,17 +21,15 @@ int fcntl(int fd, int cmd, ...)
   /* Adjust for the stupid cases. */
   switch(cmd) {
      case F_DUPFD:
-     case F_DUPFD_CLOEXEC:
      case F_SETFD:
      case F_SETFL:
-     case F_SETNOSIGPIPE:
 	m.m_lc_vfs_fcntl.arg_int = va_arg(argp, int);
 	break;
      case F_GETLK:
      case F_SETLK:
      case F_SETLKW:
      case F_FREESP:
-	m.m_lc_vfs_fcntl.arg_ptr = (vir_bytes)va_arg(argp, struct flock *);
+	m.m_lc_vfs_fcntl.arg_ptr = va_arg(argp, struct flock *);
 	break;
   }
 

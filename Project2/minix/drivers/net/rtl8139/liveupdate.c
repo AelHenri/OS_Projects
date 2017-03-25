@@ -1,5 +1,3 @@
-/* Code left here for historical purposes only. TODO: move into libnetdriver */
-
 #include "rtl8139.h"
 
 /* State management variables. */
@@ -65,7 +63,7 @@ int sef_cb_lu_prepare(int state)
 /*===========================================================================*
  *      		  sef_cb_lu_state_isvalid		             *
  *===========================================================================*/
-int sef_cb_lu_state_isvalid(int state, int UNUSED(flags))
+int sef_cb_lu_state_isvalid(int state)
 {
   return SEF_LU_STATE_IS_STANDARD(state) || RL_STATE_IS_CUSTOM(state);
 }

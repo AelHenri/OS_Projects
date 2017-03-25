@@ -46,10 +46,6 @@
  */
 #define DEBUG_DUMPIPC			0
 
-/* DEBUG_DUMPIPCF dumps filtered IPC to serial.
- */
-#define DEBUG_DUMPIPCF			0
-
 /* If defined, restrict DEBUG_DUMPIPC to particular process names */
 /* #define DEBUG_DUMPIPC_NAMES		{ "tty", "inet" } */
 

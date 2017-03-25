@@ -1,4 +1,4 @@
 PROG=	part
-MAN=	part.8
+MAN=
 
 .include <bsd.prog.mk>

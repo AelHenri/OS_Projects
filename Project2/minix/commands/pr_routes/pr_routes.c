@@ -2,6 +2,8 @@
 vmd/cmd/simple/pr_routes.c
 */
 
+#define _POSIX_C_SOURCE 2
+
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <errno.h>
@@ -19,7 +21,6 @@ vmd/cmd/simple/pr_routes.c
 #include <net/gen/route.h>
 #include <netdb.h>
 #include <net/gen/inet.h>
-#include <arpa/inet.h>
 
 #define N_IF	64	/* More than enough? */
 
@@ -191,10 +192,9 @@ static char *cidr2a(ipaddr_t addr, ipaddr_t mask)
 		testmask= (testmask << 1) & 0xFFFFFFFF;
 	}
 
-	sprintf(result, "%s/%-2d", inet_ntoa(*(struct in_addr *)&addr), n);
+	sprintf(result, "%s/%-2d", inet_ntoa(addr), n);
 	if (n == -1)
-		strcpy(strchr(result, '/')+1,
-		    inet_ntoa(*(struct in_addr *)&mask));
+		strcpy(strchr(result, '/')+1, inet_ntoa(mask));
 	return result;
 }
 
@@ -207,8 +207,7 @@ static void print_route(nwio_route_t *route)
 	printf("%*s ", if_width,
 		ifname ?  ifname : get_ifname(route->nwr_ifaddr));
 	printf("%*s ", dest_width, cidr2a(route->nwr_dest, route->nwr_netmask));
-	printf("%*s ", gateway_width,
-		inet_ntoa(*(struct in_addr *)&route->nwr_gateway));
+	printf("%*s ", gateway_width, inet_ntoa(route->nwr_gateway));
 	printf("%*lu ", dist_width, (unsigned long) route->nwr_dist);
 	printf("%*ld ", pref_width, (long) route->nwr_pref);
 	printf("%*lu", mtu_width, (long) route->nwr_mtu);
@@ -260,8 +259,7 @@ static void fill_iftab(void)
 			if (iftab[j] == iftab[i])
 			{
 				fatal("duplicate address in ip%d and ip%d: %s",
-				    i, j,
-				    inet_ntoa(*(struct in_addr *)&iftab[i]));
+					i, j, inet_ntoa(iftab[i]));
 			}
 		}
 
@@ -282,7 +280,7 @@ static char *get_ifname(ipaddr_t addr)
 		return name;
 	}
 
-	return inet_ntoa(*(struct in_addr *)&addr);
+	return inet_ntoa(addr);
 }
 
 static void fatal(char *fmt, ...)

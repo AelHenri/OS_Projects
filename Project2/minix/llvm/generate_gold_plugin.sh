@@ -9,7 +9,6 @@ cd $(dirname $0)
 : ${OBJ_LLVM=${NETBSDSRCDIR}/../obj_llvm.${ARCH}}
 : ${OBJ=${NETBSDSRCDIR}/../obj.${ARCH}}
 : ${CROSS_TOOLS=${OBJ}/"tooldir.`uname -s`-`uname -r`-`uname -m`"/bin}
-: ${MAKE=make}
 
 echo ${NETBSDSRCDIR}
 echo ${LLVMSRCDIR}
@@ -27,7 +26,7 @@ cd  ${OBJ_LLVM}
 
 ${LLVMSRCDIR}/llvm/configure \
     --enable-targets=x86 \
-    --with-c-include-dirs=/usr/include/clang-3.6:/usr/include \
+    --with-c-include-dirs=/usr/include/clang-3.4:/usr/include \
     --disable-timestamps \
     --prefix=/usr \
     --sysconfdir=/etc/llvm \
@@ -37,7 +36,7 @@ ${LLVMSRCDIR}/llvm/configure \
     --disable-debug-symbols \
     --enable-assertions \
     --enable-bindings=none \
-    llvm_cv_gnu_make_command=${MAKE} \
+    llvm_cv_gnu_make_command=make \
     ac_cv_path_CIRCO="echo circo" \
     ac_cv_path_DOT="echo dot" \
     ac_cv_path_DOTTY="echo dotty" \
@@ -47,7 +46,7 @@ ${LLVMSRCDIR}/llvm/configure \
     ac_cv_path_XDOT="echo xdot" \
     --enable-optimized 
 
-${MAKE} -j ${JOBS}
+make -j ${JOBS}
 
 # Copy the gold plugin where the NetBSD build system expects it.
 mkdir -p ${NETBSDSRCDIR}/minix/llvm/bin/
@@ -62,16 +61,7 @@ cp ${OBJ_LLVM}/./Release+Asserts/bin/llvm-* ${CROSS_TOOLS}
 
 # Generate and Install default MINIX passes
 cd ${NETBSDSRCDIR}/minix/llvm/passes/WeakAliasModuleOverride
-${MAKE} install
+make install
 
 cd ${NETBSDSRCDIR}/minix/llvm/passes/hello
-${MAKE} install
-
-cd ${NETBSDSRCDIR}/minix/llvm/passes/sectionify
-${MAKE} install
-
-cd ${NETBSDSRCDIR}/minix/llvm/passes/magic
-${MAKE} install
-
-cd ${NETBSDSRCDIR}/minix/llvm/passes/asr
-${MAKE} install
+make install

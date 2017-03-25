@@ -213,8 +213,7 @@ struct cached_page *find_cached_page_byino(dev_t dev, ino_t ino, u64_t ino_off, 
 	return NULL;
 }
 
-int addcache(dev_t dev, u64_t dev_off, ino_t ino, u64_t ino_off, int flags,
-	struct phys_block *pb)
+int addcache(dev_t dev, u64_t dev_off, ino_t ino, u64_t ino_off, struct phys_block *pb)
 {
 	int hv_dev;
         struct cached_page *hb;
@@ -238,7 +237,6 @@ int addcache(dev_t dev, u64_t dev_off, ino_t ino, u64_t ino_off, int flags,
         hb->dev_offset = dev_off;
         hb->ino = ino;
         hb->ino_offset = ino_off;
-	hb->flags = flags & VMSF_ONCE;
         hb->page = pb;
         hb->page->refcount++;   /* block also referenced by cache now */
 	hb->page->flags |= PBF_INCACHE;

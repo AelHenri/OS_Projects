@@ -47,10 +47,8 @@ static int init_buffers(sub_dev_t *sub_dev_ptr);
 static int get_started(sub_dev_t *sub_dev_ptr);
 static int io_ctl_length(int io_request);
 static special_file_t* get_special_file(int minor_dev_nr);
-#if defined(__i386__)
 static void tell_dev(vir_bytes buf, size_t size, int pci_bus,
 	int pci_dev, int pci_func);
-#endif
 
 static char io_ctl_buf[IOCPARM_MASK];
 static int irq_hook_id = 0;	/* id of irq hook at the kernel */
@@ -60,6 +58,9 @@ static int irq_hook_set = FALSE;
 static void sef_local_startup(void);
 static int sef_cb_init_fresh(int type, sef_init_info_t *info);
 static void sef_cb_signal_handler(int signo);
+EXTERN int sef_cb_lu_prepare(int state);
+EXTERN int sef_cb_lu_state_isvalid(int state);
+EXTERN void sef_cb_lu_state_dump(int state);
 
 static struct chardriver audio_tab = {
 	.cdr_open	= msg_open,	/* open the special file */
@@ -72,6 +73,9 @@ static struct chardriver audio_tab = {
 
 int main(void)
 {
+	int r, caller;
+	message mess, repl_mess;
+	int ipc_status;
 
 	/* SEF local startup. */
 	sef_local_startup();
@@ -90,6 +94,7 @@ static void sef_local_startup(void)
 {
   /* Register init callbacks. */
   sef_setcb_init_fresh(sef_cb_init_fresh);
+  sef_setcb_init_lu(sef_cb_init_fresh);
   sef_setcb_init_restart(sef_cb_init_fresh);
 
   /* Register live update callbacks. */
@@ -110,7 +115,7 @@ static void sef_local_startup(void)
 static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *UNUSED(info))
 {
 /* Initialize the audio driver framework. */
-	int i; char irq;
+	u32_t i; char irq;
 	static int executed = 0;
 	sub_dev_t* sub_dev_ptr;
 
@@ -494,20 +499,17 @@ static ssize_t msg_read(devminor_t minor, u64_t UNUSED(position),
 
 static void msg_hardware(unsigned int UNUSED(mask))
 {
-	int i;
+	u32_t     i;
 
-	/* if we have an interrupt */
-	if (drv_int_sum()) {
-		/* loop over all sub devices */
-		for ( i = 0; i < drv.NrOfSubDevices; i++) {
-			/* if interrupt from sub device and Dma transfer
-			   was actually busy, take care of business */
-			if( drv_int(i) && sub_dev[i].DmaBusy ) {
-				if (sub_dev[i].DmaMode == WRITE_DMA)
-					handle_int_write(i);
-				if (sub_dev[i].DmaMode == READ_DMA)
-					handle_int_read(i);
-			}
+	/* loop over all sub devices */
+	for ( i = 0; i < drv.NrOfSubDevices; i++) {
+		/* if interrupt from sub device and Dma transfer 
+		   was actually busy, take care of business */
+		if( drv_int(i) && sub_dev[i].DmaBusy ) {
+			if (sub_dev[i].DmaMode == WRITE_DMA)
+				handle_int_write(i);
+			if (sub_dev[i].DmaMode == READ_DMA)
+				handle_int_read(i);
 		}
 	}
 
@@ -577,6 +579,7 @@ static void handle_int_write(int sub_dev_nr)
 static void handle_int_read(int sub_dev_nr) 
 {
 	sub_dev_t *sub_dev_ptr;
+	message m;
 
 	sub_dev_ptr = &sub_dev[sub_dev_nr];
 
@@ -609,7 +612,6 @@ static void handle_int_read(int sub_dev_nr)
 			sub_dev_ptr->DmaLength -= 1;
 			sub_dev_ptr->DmaReadNext = 
 				(sub_dev_ptr->DmaReadNext + 1) % sub_dev_ptr->NrOfDmaFragments;
-			sub_dev_ptr->BufLength += 1;
 			sub_dev_ptr->BufFillNext = 
 				(sub_dev_ptr->BufFillNext + 1) % sub_dev_ptr->NrOfExtraBuffers;
 		}
@@ -649,6 +651,7 @@ static int get_started(sub_dev_t *sub_dev_ptr) {
 static void data_from_user(sub_dev_t *subdev)
 {
 	int r;
+	message m;
 
 	if (subdev->DmaLength == subdev->NrOfDmaFragments &&
 			subdev->BufLength == subdev->NrOfExtraBuffers) return;/* no space */
@@ -707,6 +710,7 @@ static void data_from_user(sub_dev_t *subdev)
 static void data_to_user(sub_dev_t *sub_dev_ptr)
 {
 	int r;
+	message m;
 
 	if (!sub_dev_ptr->RevivePending) return; /* nobody is wating for data */
 	if (sub_dev_ptr->BufLength == 0 && sub_dev_ptr->DmaLength == 0) return; 
@@ -789,7 +793,7 @@ static int init_buffers(sub_dev_t *sub_dev_ptr)
 	}
 
 	if ((left = dma_bytes_left(sub_dev_ptr->DmaPhys)) < 
-			(unsigned int)sub_dev_ptr->DmaSize) {
+			sub_dev_ptr->DmaSize) {
 		/* First half of buffer crosses a 64K boundary,
 		 * can't DMA into that */
 		sub_dev_ptr->DmaPtr += left;
@@ -828,7 +832,6 @@ static special_file_t* get_special_file(int minor_dev_nr) {
 	return NULL;
 }
 
-#if defined(__i386__)
 static void tell_dev(vir_bytes buf, size_t size, int pci_bus,
                      int pci_dev, int pci_func)
 {
@@ -865,4 +868,3 @@ static void tell_dev(vir_bytes buf, size_t size, int pci_bus,
 		return;
 	}
 }
-#endif

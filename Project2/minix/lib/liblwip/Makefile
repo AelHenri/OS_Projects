@@ -1,4 +1,5 @@
 NOGCCERROR=yes
+NOCLANGERROR=yes
 
 LIB = lwip
 

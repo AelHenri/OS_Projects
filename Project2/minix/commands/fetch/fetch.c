@@ -316,7 +316,7 @@ read_password(const char *prompt, char *pwbuf, size_t pwbuf_len)
 	tcflag_t saved_flags;
 	int nopwd;
 
-	fprintf(stderr, "%s", prompt);
+	fprintf(stderr, prompt);
 	if (tcgetattr(STDIN_FILENO, &tios) != 0)
 		return (fgets(pwbuf, pwbuf_len, stdin) == NULL);
 

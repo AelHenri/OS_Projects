@@ -1,4 +1,4 @@
 PROG=	irdpd
-MAN=	irdpd.8
+MAN=
 
 .include <bsd.prog.mk>

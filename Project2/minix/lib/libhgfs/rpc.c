@@ -40,7 +40,7 @@ int rpc_query(void)
  * speaks the protocol correctly. Hence, the callers of this function do not
  * check for lengths.
  */
-  int r, len, err;
+  int r, len, id, err;
 
   len = RPC_LEN;
 
@@ -61,7 +61,7 @@ int rpc_query(void)
 
   if (len <= 2) return OK;
 
-  RPC_ADVANCE(sizeof(u32_t)); /* Skip over id field. */
+  id = RPC_NEXT32;
   err = RPC_NEXT32;
 
   return error_convert(err);

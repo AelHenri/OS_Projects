@@ -1,5 +1,8 @@
+# LSC For nwo
+NOGCCERROR:= yes
+
 PROG=	backup
-MAN=	backup.8
+MAN=
 
 LINKS+=	${BINDIR}/backup ${BINDIR}/restore
 

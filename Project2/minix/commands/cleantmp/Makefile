@@ -1,4 +1,6 @@
+# LSC For now
+NOGCCERROR:= yes
 PROG=	cleantmp
-MAN=	cleantmp.8
+MAN=
 
 .include <bsd.prog.mk>

@@ -1,7 +1,7 @@
 /* This file contains mount and unmount functionality.
  *
  * The entry points into this file are:
- *   do_mount		perform the READSUPER file system call
+ *   do_readsuper	perform the READSUPER file system call
  *   do_unmount		perform the UNMOUNT file system call
  *
  * Created:
@@ -11,10 +11,9 @@
 #include "inc.h"
 
 /*===========================================================================*
- *				do_mount				     *
+ *				do_readsuper				     *
  *===========================================================================*/
-int do_mount(dev_t __unused dev, unsigned int flags,
-	struct fsdriver_node *root_node, unsigned int *res_flags)
+int do_readsuper(void)
 {
 /* Mount the file system.
  */
@@ -23,15 +22,17 @@ int do_mount(dev_t __unused dev, unsigned int flags,
   struct sffs_attr attr;
   int r;
 
-  dprintf(("%s: mount (dev %"PRIx64", flags %x)\n", sffs_name, dev, flags));
+  dprintf(("%s: readsuper (dev %x, flags %x)\n",
+	sffs_name, m_in.m_vfs_fs_readsuper.device, m_in.vfs_fs_readsuper.flags));
 
-  if (flags & REQ_ISROOT) {
+  if (m_in.m_vfs_fs_readsuper.flags & REQ_ISROOT) {
 	printf("%s: attempt to mount as root device\n", sffs_name);
 
 	return EINVAL;
   }
 
-  read_only = !!(flags & REQ_RDONLY);
+  state.s_read_only = !!(m_in.m_vfs_fs_readsuper.flags & REQ_RDONLY);
+  state.s_dev = m_in.m_vfs_fs_readsuper.device;
 
   init_dentry();
   ino = init_inode();
@@ -54,14 +55,15 @@ int do_mount(dev_t __unused dev, unsigned int flags,
 	return r;
   }
 
-  root_node->fn_ino_nr = INODE_NR(ino);
-  root_node->fn_mode = get_mode(ino, attr.a_mode);
-  root_node->fn_size = attr.a_size;
-  root_node->fn_uid = sffs_params->p_uid;
-  root_node->fn_gid = sffs_params->p_gid;
-  root_node->fn_dev = NO_DEV;
+  m_out.m_fs_vfs_readsuper.inode = INODE_NR(ino);
+  m_out.m_fs_vfs_readsuper.mode = get_mode(ino, attr.a_mode);
+  m_out.m_fs_vfs_readsuper.file_size = attr.a_size;
+  m_out.m_fs_vfs_readsuper.uid = sffs_params->p_uid;
+  m_out.m_fs_vfs_readsuper.gid = sffs_params->p_gid;
+  m_out.m_fs_vfs_readsuper.device = NO_DEV;
+  m_out.m_fs_vfs_readsuper.flags = RES_64BIT;
 
-  *res_flags = RES_64BIT;
+  state.s_mounted = TRUE;
 
   return OK;
 }
@@ -69,21 +71,25 @@ int do_mount(dev_t __unused dev, unsigned int flags,
 /*===========================================================================*
  *				do_unmount				     *
  *===========================================================================*/
-void do_unmount(void)
+int do_unmount(void)
 {
 /* Unmount the file system.
  */
   struct inode *ino;
 
-  dprintf(("%s: unmount\n", sffs_name));
+  dprintf(("%s: do_unmount\n", sffs_name));
 
   /* Decrease the reference count of the root inode. */
   if ((ino = find_inode(ROOT_INODE_NR)) == NULL)
-	return;
+	return EINVAL;
 
   put_inode(ino);
 
   /* There should not be any referenced inodes anymore now. */
   if (have_used_inode())
 	printf("%s: in-use inodes left at unmount time!\n", sffs_name);
+
+  state.s_mounted = FALSE;
+
+  return OK;
 }

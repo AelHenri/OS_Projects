@@ -1,6 +1,6 @@
 INCSDIR= /usr/include/net
 
-INCS+= hton.h netlib.h
+INCS+= hton.h if.h netlib.h
 
 SUBDIR+= gen
 

@@ -37,6 +37,7 @@
 static struct nic devices[MAX_DEVS];
 
 static ip_addr_t ip_addr_none = { IPADDR_NONE };
+extern endpoint_t lwip_ep;
 
 void nic_assign_driver(const char * dev_type,
 			unsigned int dev_num,
@@ -100,15 +101,6 @@ static struct nic * lookup_nic_default(void)
 	}
 
 	return NULL;
-}
-
-struct nic * nic_get(int i)
-{
-
-	if (i < 0 || i >= MAX_DEVS || devices[i].drv_ep == NONE)
-		return NULL;
-
-	return &devices[i];
 }
 
 void nic_init_all(void)
@@ -705,7 +697,7 @@ static int nic_op_write(struct socket * sock, struct sock_req * req,
 		return ret;
 	}
 
-	if ((ret = nic->netif.linkoutput(&nic->netif, pbuf)) != ERR_OK) {
+	if ((ret = nic->netif.linkoutput(&nic->netif, pbuf) != ERR_OK)) {
 		debug_print("raw linkoutput failed %d", ret);
 		ret = EIO;
 	} else

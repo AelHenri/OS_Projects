@@ -15,6 +15,7 @@ Created:	June 1995 by Philip Homburg <philip@f-mnx.phicoh.com>
 #include <stdio.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/svrctl.h>
 #ifndef __minix_vmd
 #include <sys/times.h>
 #endif
@@ -31,7 +32,6 @@ Created:	June 1995 by Philip Homburg <philip@f-mnx.phicoh.com>
 #include <inet/generic/type.h>
 #include <inet/generic/tcp.h>
 #include <inet/generic/tcp_int.h>
-#include <arpa/inet.h>
 
 u32_t system_hz;
 char *prog_name;
@@ -180,7 +180,7 @@ void print_conn(int i, clock_t now)
 		addr_str= hostent->h_name;
 	}
 	else
-		addr_str= inet_ntoa(*(struct in_addr *)&a1);
+		addr_str= inet_ntoa(a1);
 	printf(" %s:", addr_str);
 
 	if (p1 == 0)
@@ -206,7 +206,7 @@ void print_conn(int i, clock_t now)
 		addr_str= hostent->h_name;
 	}
 	else
-		addr_str= inet_ntoa(*(struct in_addr *)&a2);
+		addr_str= inet_ntoa(a2);
 	printf("%s:", addr_str);
 
 	if (p2 == 0)
@@ -226,7 +226,7 @@ void print_conn(int i, clock_t now)
 	case TCS_CLOSED:	printf("CLOSED");
 				if (tcp_conn->tc_senddis >= now)
 				{
-					printf("(time wait %u s)",
+					printf("(time wait %d s)",
 					(tcp_conn->tc_senddis-now)/system_hz);
 				}
 				no_verbose= 1;

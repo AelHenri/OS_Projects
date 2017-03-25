@@ -46,7 +46,6 @@
 #include <minix/config.h>
 #include <minix/const.h>
 #include <minix/type.h>
-#include <minix/ipc.h>
 #include "mfs/const.h"
 #include "mfs/inode.h"
 #include "mfs/type.h"
@@ -645,7 +644,7 @@ void chksuper()
   if(maxsize <= 0)
 	maxsize = LONG_MAX;
   if (sb.s_max_size != maxsize) {
-	printf("warning: expected max size to be %lld ", maxsize);
+	printf("warning: expected max size to be %d ", maxsize);
 	printf("instead of %d\n", sb.s_max_size);
   }
 
@@ -681,7 +680,7 @@ char **clist;
 	ino = bit;
 	do {
 		devread(inoblock(ino), inooff(ino), (char *) ip, INODE_SIZE);
-		printf("inode %llu:\n", ino);
+		printf("inode %u:\n", ino);
 		printf("    mode   = %6o", ip->i_mode);
 		if (input(buf, 80)) ip->i_mode = atoo(buf);
 		printf("    nlinks = %6u", ip->i_nlinks);
@@ -798,12 +797,11 @@ bit_nr phys;
 	    (!repair || automatic || yes("stop this listing")))
 		*report = 0;
 	else {
-	    if (*report) {
+	    if (*report)
 		if ((w1 & 1) && !(w2 & 1))
 			printf("%s %d is missing\n", type, bit);
 		else if (!(w1 & 1) && (w2 & 1))
 			printf("%s %d is not free\n", type, bit);
-	    }
 	}
 }
 
@@ -854,7 +852,7 @@ void chkilist()
 		devread(inoblock(ino), inooff(ino), (char *) &mode,
 			sizeof(mode));
 		if (mode != I_NOT_ALLOC) {
-			printf("mode inode %llu not cleared", ino);
+			printf("mode inode %u not cleared", ino);
 			if (yes(". clear")) devwrite(inoblock(ino),
 				inooff(ino), nullbuf, INODE_SIZE);
 		}
@@ -880,7 +878,7 @@ void counterror(ino_t ino)
   }
   devread(inoblock(ino), inooff(ino), (char *) &inode, INODE_SIZE);
   count[ino] += inode.i_nlinks;	/* it was already subtracted; add it back */
-  printf("%5llu %5u %5u", ino, (unsigned) inode.i_nlinks, count[ino]);
+  printf("%5u %5u %5u", ino, (unsigned) inode.i_nlinks, count[ino]);
   if (yes(" adjust")) {
 	if ((inode.i_nlinks = count[ino]) == 0) {
 		fatal("internal error (counterror)");
@@ -940,7 +938,7 @@ void list(ino_t ino, d_inode *ip)
 	firstlist = 0;
 	printf(" inode permission link   size name\n");
   }
-  printf("%6llu ", ino);
+  printf("%6u ", ino);
   switch (ip->i_mode & I_TYPE) {
       case I_REGULAR:		putchar('-');	break;
       case I_DIRECTORY:		putchar('d');	break;
@@ -1024,12 +1022,11 @@ int chkdots(ino_t ino, off_t pos, dir_struct *dp, ino_t exp)
   char printable_name[4 * MFS_NAME_MAX + 1];
 
   if (dp->d_inum != exp) {
-	make_printable_name(printable_name, dp->mfs_d_name,
-	    sizeof(dp->mfs_d_name));
+	make_printable_name(printable_name, dp->mfs_d_name, sizeof(dp->mfs_d_name));
 	printf("bad %s in ", printable_name);
 	printpath(1, 0);
 	printf("%s is linked to %u ", printable_name, dp->d_inum);
-	printf("instead of %llu)", exp);
+	printf("instead of %u)", exp);
 	setbit(spec_imap, (bit_nr) ino);
 	setbit(spec_imap, (bit_nr) dp->d_inum);
 	setbit(spec_imap, (bit_nr) exp);
@@ -1040,9 +1037,8 @@ int chkdots(ino_t ino, off_t pos, dir_struct *dp, ino_t exp)
 		return(0);
 	}
   } else if (pos != (dp->mfs_d_name[1] ? DIR_ENTRY_SIZE : 0)) {
-	make_printable_name(printable_name, dp->mfs_d_name,
-	    sizeof(dp->mfs_d_name));
-	printf("warning: %s has offset %lld in ", printable_name, pos);
+	make_printable_name(printable_name, dp->mfs_d_name, sizeof(dp->mfs_d_name));
+	printf("warning: %s has offset %d in ", printable_name, pos);
 	printpath(1, 0);
 	printf("%s is linked to %u)\n", printable_name, dp->d_inum);
 	setbit(spec_imap, (bit_nr) ino);
@@ -1209,7 +1205,7 @@ off_t pos;
       case 2:	printf("DOUBLE INDIRECT");	break;
       default:	printf("VERY INDIRECT");
   }
-  printf(", pos = %lld)\n", pos);
+  printf(", pos = %d)\n", pos);
 }
 
 /* Found the given zone in the given inode.  Check it, and if ok, mark it
@@ -1428,7 +1424,7 @@ int chkinode(ino_t ino, d_inode *ip)
 {
   if (ino == ROOT_INODE && (ip->i_mode & I_TYPE) != I_DIRECTORY) {
 	printf("root inode is not a directory ");
-	printf("(ino = %llu, mode = %o)\n", ino, ip->i_mode);
+	printf("(ino = %u, mode = %o)\n", ino, ip->i_mode);
 	fatal("");
   }
   if (ip->i_nlinks == 0) {
@@ -1463,7 +1459,7 @@ dir_struct *dp;
   stk.st_next = ftop;
   ftop = &stk;
   if (bitset(spec_imap, (bit_nr) ino)) {
-	printf("found inode %llu: ", ino);
+	printf("found inode %u: ", ino);
 	printpath(0, 1);
   }
   visited = bitset(imap, (bit_nr) ino);

@@ -1,4 +1,4 @@
 PROG=	atnormalize
-MAN=	atnormalize.8
+MAN=
 
 .include <bsd.prog.mk>

@@ -5,6 +5,17 @@
 
 
 /*===========================================================================*
+ *				no_sys					     *
+ *===========================================================================*/
+int no_sys()
+{
+/* Somebody has used an illegal system call number */
+  printf("no_sys: invalid call %d\n", req_nr);
+  return(EINVAL);
+}
+
+
+/*===========================================================================*
  *				conv2					     *
  *===========================================================================*/
 unsigned conv2(norm, w)
@@ -34,3 +45,53 @@ long x;				/* 32-bit long to be byte swapped */
   l = ( (long) lo <<16) | hi;
   return(l);
 }
+
+
+/*===========================================================================*
+ *				clock_time				     *
+ *===========================================================================*/
+time_t clock_time()
+{
+/* This routine returns the time in seconds since 1.1.1970.  MINIX is an
+ * astrophysically naive system that assumes the earth rotates at a constant
+ * rate and that such things as leap seconds do not exist.
+ */
+
+  register int k;
+  clock_t uptime;
+  clock_t realtime;
+  time_t boottime;
+
+  if ( (k=getuptime(&uptime, &realtime, &boottime)) != OK)
+		panic("clock_time: getuptme2 failed: %d", k);
+  
+  return( (time_t) (boottime + (realtime/sys_hz())));
+}
+
+
+/*===========================================================================*
+ *				mfs_min					     *
+ *===========================================================================*/
+int min(unsigned int l, unsigned int r)
+{
+	if(r >= l) return(l);
+
+	return(r);
+}
+
+
+/*===========================================================================*
+ *				mfs_nul					     *
+ *===========================================================================*/
+void mfs_nul_f(char *file, int line, char *str, unsigned int len,
+unsigned int maxlen)
+{
+  if(len < maxlen && str[len-1] != '\0') {
+	printf("MFS %s:%d string (length %d, maxlen %d) not null-terminated\n",
+		file, line, len, maxlen);
+  }
+}
+
+#define MYASSERT(c) if(!(c)) { printf("MFS:%s:%d: sanity check: %s failed\n", \
+  file, line, #c); panic("sanity check " #c " failed: %d", __LINE__); }
+

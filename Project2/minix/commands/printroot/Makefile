@@ -1,5 +1,5 @@
 PROG=	printroot
 BINDIR=	/bin
-MAN=	printroot.8
+MAN=
 
 .include <bsd.prog.mk>

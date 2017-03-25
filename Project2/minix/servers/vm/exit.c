@@ -16,6 +16,7 @@
 
 #include <errno.h>
 #include <assert.h>
+#include <env.h>
 
 #include "glo.h"
 #include "proto.h"
@@ -73,10 +74,6 @@ SANITYCHECK(SCL_FUNCTIONS);
 	if(!(vmp->vm_flags & VMF_EXITING)) {
 		printf("VM: unannounced VM_EXIT %d\n", msg->VME_ENDPOINT);
 		return EINVAL;
-	}
-	if(vmp->vm_flags & VMF_VM_INSTANCE) {
-	    vmp->vm_flags &= ~VMF_VM_INSTANCE;
-	    num_vm_instances--;
 	}
 
 	{

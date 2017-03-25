@@ -28,7 +28,6 @@
  *	4. This notice may not be removed or altered.
  */
 
-#include <stdlib.h>
 #include <stdio.h>
 
 #ifdef UNIX
@@ -55,7 +54,10 @@ int Ulx = 0;				/* underline buffer index */
 
 void Putchar(int ch);
 
-int main(int argc, char *argv[]) {
+main(argc, argv)
+	int argc;
+	char *argv[];
+{
 	int ax = 1;			/* argument index */
 	unsigned char c;		/* character buffer */
 	FILE *fs;			/* file stream */
@@ -163,7 +165,10 @@ int main(int argc, char *argv[]) {
  * Putchar(ch) - put a character with possible underlining
  */
 
-void Putchar(int ch) {
+void
+Putchar(ch)
+	int ch;
+{
 	int i;					/* temporary index */
 
 	if ((unsigned char)ch == '\n') {

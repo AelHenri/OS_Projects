@@ -1,4 +1,4 @@
 PROG=	autopart
-MAN=	autopart.8
+MAN=
 
 .include <bsd.prog.mk>

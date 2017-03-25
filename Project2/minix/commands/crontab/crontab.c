@@ -16,6 +16,10 @@
 #include "misc.h"
 #include "tab.h"
 
+#if __minix && !__minix_vmd
+#define seteuid(uid)	((uid),0)	/* Minix can't fiddle with uids. */
+#endif
+
 static int opentab(int uid, char *file, int how)
 /* Open a crontab file under the given uid.  How is 'r' or 'w'.  Return
  * the result of open(2).
@@ -29,6 +33,13 @@ static int opentab(int uid, char *file, int how)
 	case 'w':	flags= O_WRONLY | O_CREAT | O_TRUNC;	break;
 	default:	errno= EINVAL;				return -1;
 	}
+
+#if __minix && !__minix_vmd
+	/* Standard Minix has no saved uid, so use the lousy old access(). */
+	if (uid != 0) {
+		if (access(file, how == 'r' ? R_OK : W_OK) < 0) return -1;
+	}
+#endif
 
 	safe_uid= geteuid();
 	seteuid(uid);

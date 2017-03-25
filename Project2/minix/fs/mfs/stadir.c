@@ -5,6 +5,7 @@
 #include <sys/statvfs.h>
 #include "inode.h"
 #include "super.h"
+#include <minix/vfsif.h>
 
 /*===========================================================================*
  *				estimate_blocks				     *
@@ -37,18 +38,20 @@ static blkcnt_t estimate_blocks(struct inode *rip)
   return (zones + sindirs + dindirs) * (blkcnt_t) (zone_size / 512);
 }
 
-
 /*===========================================================================*
- *                             fs_stat					     *
+ *				stat_inode				     *
  *===========================================================================*/
-int fs_stat(ino_t ino_nr, struct stat *statbuf)
+static int stat_inode(
+  register struct inode *rip,	/* pointer to inode to stat */
+  endpoint_t who_e,		/* Caller endpoint */
+  cp_grant_id_t gid		/* grant for the stat buf */
+)
 {
-  struct inode *rip;
-  mode_t mo;
-  int s;
+/* Common code for stat and fstat system calls. */
 
-  if ((rip = get_inode(fs_dev, ino_nr)) == NULL)
-	return(EINVAL);
+  struct stat statbuf;
+  mode_t mo;
+  int r, s;
 
   /* Update the atime, ctime, and mtime fields in the inode, if need be. */
   if (rip->i_update) update_times(rip);
@@ -59,47 +62,76 @@ int fs_stat(ino_t ino_nr, struct stat *statbuf)
   /* true iff special */
   s = (mo == I_CHAR_SPECIAL || mo == I_BLOCK_SPECIAL);
 
-  statbuf->st_mode = (mode_t) rip->i_mode;
-  statbuf->st_nlink = (nlink_t) rip->i_nlinks;
-  statbuf->st_uid = rip->i_uid;
-  statbuf->st_gid = rip->i_gid;
-  statbuf->st_rdev = (s ? (dev_t)rip->i_zone[0] : NO_DEV);
-  statbuf->st_size = rip->i_size;
-  statbuf->st_atime = rip->i_atime;
-  statbuf->st_mtime = rip->i_mtime;
-  statbuf->st_ctime = rip->i_ctime;
-  statbuf->st_blksize = lmfs_fs_block_size();
-  statbuf->st_blocks = estimate_blocks(rip);
+  memset(&statbuf, 0, sizeof(struct stat));
 
-  put_inode(rip);		/* release the inode */
+  statbuf.st_dev = rip->i_dev;
+  statbuf.st_ino = (ino_t) rip->i_num;
+  statbuf.st_mode = (mode_t) rip->i_mode;
+  statbuf.st_nlink = (nlink_t) rip->i_nlinks;
+  statbuf.st_uid = rip->i_uid;
+  statbuf.st_gid = rip->i_gid;
+  statbuf.st_rdev = (s ? (dev_t)rip->i_zone[0] : NO_DEV);
+  statbuf.st_size = rip->i_size;
+  statbuf.st_atime = rip->i_atime;
+  statbuf.st_mtime = rip->i_mtime;
+  statbuf.st_ctime = rip->i_ctime;
+  statbuf.st_blksize = lmfs_fs_block_size();
+  statbuf.st_blocks = estimate_blocks(rip);
 
-  return(OK);
+  /* Copy the struct to user space. */
+  r = sys_safecopyto(who_e, gid, (vir_bytes) 0, (vir_bytes) &statbuf,
+  		(size_t) sizeof(statbuf));
+
+  return(r);
 }
-
 
 /*===========================================================================*
  *				fs_statvfs				     *
  *===========================================================================*/
-int fs_statvfs(struct statvfs *st)
+int fs_statvfs()
 {
+  struct statvfs st;
   struct super_block *sp;
-  int scale;
+  int r, scale;
+  u64_t used;
 
-  sp = &superblock;
+  sp = get_super(fs_dev);
 
   scale = sp->s_log_zone_size;
 
-  st->f_blocks = sp->s_zones;
-  st->f_bfree = sp->s_zones - used_zones;
-  st->f_bavail = st->f_bfree;
+  memset(&st, 0, sizeof(st));
 
-  st->f_bsize = sp->s_block_size << scale;
-  st->f_frsize = sp->s_block_size;
-  st->f_iosize = st->f_frsize;
-  st->f_files = sp->s_ninodes;
-  st->f_ffree = count_free_bits(sp, IMAP);
-  st->f_favail = st->f_ffree;
-  st->f_namemax = MFS_DIRSIZ;
+  fs_blockstats(&st.f_blocks, &st.f_bfree, &used);
+  st.f_bavail = st.f_bfree;
 
-  return(OK);
+  st.f_bsize =  sp->s_block_size << scale;
+  st.f_frsize = sp->s_block_size;
+  st.f_iosize = st.f_frsize;
+  st.f_files = sp->s_ninodes;
+  st.f_ffree = count_free_bits(sp, IMAP);
+  st.f_favail = st.f_ffree;
+  st.f_namemax = MFS_DIRSIZ;
+
+  /* Copy the struct to user space. */
+  r = sys_safecopyto(fs_m_in.m_source, fs_m_in.m_vfs_fs_statvfs.grant, 0,
+			(vir_bytes) &st, (phys_bytes) sizeof(st));
+  
+  return(r);
 }
+
+/*===========================================================================*
+ *                             fs_stat					     *
+ *===========================================================================*/
+int fs_stat()
+{
+  register int r;              /* return value */
+  register struct inode *rip;  /* target inode */
+
+  if ((rip = get_inode(fs_dev, fs_m_in.m_vfs_fs_stat.inode)) == NULL)
+	return(EINVAL);
+  
+  r = stat_inode(rip, fs_m_in.m_source, fs_m_in.m_vfs_fs_stat.grant);
+  put_inode(rip);		/* release the inode */
+  return(r);
+}
+

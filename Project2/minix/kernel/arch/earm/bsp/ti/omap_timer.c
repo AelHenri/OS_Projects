@@ -160,11 +160,12 @@ kern_phys_fr_user_mapped(vir_bytes id, phys_bytes address)
 	/* the only thing we need to do at this stage is to set the address */
 	/* in the kerninfo struct */
 	if (BOARD_IS_BBXM(machine.board_id)) {
-		arm_frclock.tcrr = address + OMAP3_TIMER_TCRR;
-		arm_frclock.hz = 1625000;
+		minix_kerninfo.minix_frclock_tcrr = address + OMAP3_TIMER_TCRR;
+		minix_kerninfo.minix_arm_frclock_hz = 1625000;
 	} else if (BOARD_IS_BB(machine.board_id)) {
-		arm_frclock.tcrr = address + AM335X_TIMER_TCRR;
-		arm_frclock.hz = 1500000;
+		minix_kerninfo.minix_frclock_tcrr =
+		    address + AM335X_TIMER_TCRR;
+		minix_kerninfo.minix_arm_frclock_hz = 1500000;
 	}
 	return 0;
 }
@@ -258,7 +259,7 @@ omap3_frclock_init(void)
 }
 
 void
-omap3_frclock_stop(void)
+omap3_frclock_stop()
 {
 	mmio_clear(fr_timer->base + fr_timer->regs->TCLR, OMAP3_TCLR_ST);
 }
@@ -328,7 +329,7 @@ bsp_timer_init(unsigned freq)
 }
 
 void
-bsp_timer_stop(void)
+bsp_timer_stop()
 {
 	mmio_clear(timer->base + timer->regs->TCLR, OMAP3_TCLR_ST);
 }
@@ -369,7 +370,7 @@ frc_overflow_check(u32_t cur_frc)
 }
 
 void
-bsp_timer_int_handler(void)
+bsp_timer_int_handler()
 {
 	/* Clear all interrupts */
 	u32_t tisr, now;

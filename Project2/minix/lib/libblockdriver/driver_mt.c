@@ -17,7 +17,6 @@
 
 #include "const.h"
 #include "driver.h"
-#include "driver_mt.h"
 #include "mq.h"
 
 /* A thread ID is composed of a device ID and a per-device worker thread ID.
@@ -27,7 +26,7 @@
 #define TID_DEVICE(tid)		((tid) / MAX_WORKERS)
 #define TID_WORKER(tid)		((tid) % MAX_WORKERS)
 
-typedef unsigned int worker_id_t;
+typedef int worker_id_t;
 
 typedef enum {
   STATE_DEAD,
@@ -151,7 +150,7 @@ static void *worker_thread(void *param)
   device_t *dp;
   thread_id_t tid;
   message m;
-  int ipc_status;
+  int ipc_status, r;
 
   wp = (worker_t *) param;
   assert(wp != NULL);
@@ -273,20 +272,6 @@ static void master_handle_exits(void)
 }
 
 /*===========================================================================*
- *				master_yield				     *
- *===========================================================================*/
-static void master_yield(void)
-{
-/* Let worker threads run, and clean up any exited threads.
- */
-
-  mthread_yield_all();
-
-  if (num_exited > 0)
-	master_handle_exits();
-}
-
-/*===========================================================================*
  *				master_handle_message			     *
  *===========================================================================*/
 static void master_handle_message(message *m_ptr, int ipc_status)
@@ -299,8 +284,7 @@ static void master_handle_message(message *m_ptr, int ipc_status)
   device_id_t id;
   worker_t *wp;
   device_t *dp;
-  unsigned int wid;
-  int r;
+  int r, wid;
 
   /* If this is not a block driver request, we cannot get the minor device
    * associated with it, and thus we can not tell which thread should process
@@ -436,8 +420,12 @@ void blockdriver_mt_task(struct blockdriver *driver_tab)
 	/* Dispatch the message. */
 	master_handle_message(&mess, ipc_status);
 
-	/* Let worker threads run. */
-	master_yield();
+	/* Let other threads run. */
+	mthread_yield_all();
+
+	/* Clean up any exited threads. */
+	if (num_exited > 0)
+		master_handle_exits();
   }
 
   /* Free up resources. */
@@ -488,7 +476,7 @@ void blockdriver_mt_wakeup(thread_id_t id)
   worker_id = TID_WORKER(id);
 
   assert(device_id >= 0 && device_id < MAX_DEVICES);
-  assert(worker_id < MAX_WORKERS);
+  assert(worker_id >= 0 && worker_id < MAX_WORKERS);
 
   wp = &device[device_id].worker[worker_id];
 
@@ -500,7 +488,7 @@ void blockdriver_mt_wakeup(thread_id_t id)
 /*===========================================================================*
  *				blockdriver_mt_set_workers		     *
  *===========================================================================*/
-void blockdriver_mt_set_workers(device_id_t id, unsigned int workers)
+void blockdriver_mt_set_workers(device_id_t id, int workers)
 {
 /* Set the number of worker threads for the given device.
  */
@@ -518,64 +506,4 @@ void blockdriver_mt_set_workers(device_id_t id, unsigned int workers)
 	mthread_event_fire_all(&dp->queue_event);
 
   dp->workers = workers;
-}
-
-/*===========================================================================*
- *				blockdriver_mt_is_idle			     *
- *===========================================================================*/
-int blockdriver_mt_is_idle(void)
-{
-/* Return whether the block driver is idle. This means that it has no enqueued
- * requests and no busy worker threads. Used for live update functionality.
- */
-  unsigned int did, wid;
-
-  for (did = 0; did < MAX_DEVICES; did++) {
-	if (!mq_isempty(did))
-		return FALSE;
-
-	for (wid = 0; wid < device[did].workers; wid++)
-		if (device[did].worker[wid].state == STATE_BUSY)
-			return FALSE;
-  }
-
-  return TRUE;
-}
-
-/*===========================================================================*
- *				blockdriver_mt_suspend			     *
- *===========================================================================*/
-void blockdriver_mt_suspend(void)
-{
-/* Suspend the driver operation in order to facilitate a live update.
- * Suspension involves shutting down all worker threads, because transferring
- * thread stacks is currently not supported by the state transfer framework.
- */
-  unsigned int did;
-
-  assert(running);
-  assert(blockdriver_mt_is_idle());
-
-  /* We terminate the worker threads by simulating a driver shutdown. */
-  running = FALSE;
-
-  for (did = 0; did < MAX_DEVICES; did++)
-	mthread_event_fire_all(&device[did].queue_event);
-
-  master_yield();
-}
-
-/*===========================================================================*
- *				blockdriver_mt_resume			     *
- *===========================================================================*/
-void blockdriver_mt_resume(void)
-{
-/* Resume regular operation after a (successful or failed) live update. We do
- * not recreate worker threads; instead, they are recreated lazily as new
- * requests come in.
- */
-
-  assert(!running);
-
-  running = TRUE;
 }

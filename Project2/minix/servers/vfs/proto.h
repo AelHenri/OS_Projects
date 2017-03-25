@@ -20,23 +20,6 @@ struct lookup;
 struct worker_thread;
 struct job;
 
-/* bdev.c */
-int bdev_open(dev_t dev, int access);
-int bdev_close(dev_t dev);
-int bdev_ioctl(dev_t dev, endpoint_t proc_e, unsigned long req, vir_bytes buf);
-void bdev_reply(void);
-void bdev_up(devmajor_t major);
-
-/* cdev.c */
-dev_t cdev_map(dev_t dev, struct fproc *rfp);
-int cdev_open(int fd, dev_t dev, int flags);
-int cdev_close(dev_t dev);
-int cdev_io(int op, dev_t dev, endpoint_t proc_e, vir_bytes buf, off_t pos,
-	unsigned long bytes, int flags);
-int cdev_select(dev_t dev, int ops);
-int cdev_cancel(dev_t dev, endpoint_t endpt, cp_grant_id_t grant);
-void cdev_reply(void);
-
 /* comm.c */
 int drv_sendrec(endpoint_t drv_e, message *reqm);
 void fs_cancel(struct vmnt *vmp);
@@ -47,9 +30,19 @@ void send_work(void);
 int vm_vfs_procctl_handlemem(endpoint_t ep, vir_bytes mem, vir_bytes len, int flags);
 
 /* device.c */
+int cdev_open(dev_t dev, int flags);
+int cdev_close(dev_t dev);
+int cdev_io(int op, dev_t dev, endpoint_t proc_e, vir_bytes buf, off_t pos,
+	unsigned long bytes, int flags);
+dev_t cdev_map(dev_t dev, struct fproc *rfp);
+int cdev_select(dev_t dev, int ops);
+int cdev_cancel(dev_t dev);
+void cdev_reply(void);
+int bdev_open(dev_t dev, int access);
+int bdev_close(dev_t dev);
+void bdev_reply(void);
+void bdev_up(devmajor_t major);
 int do_ioctl(void);
-cp_grant_id_t make_ioctl_grant(endpoint_t driver_e, endpoint_t user_e,
-	vir_bytes buf, unsigned long request);
 
 /* dmap.c */
 void lock_dmap(struct dmap *dp);
@@ -101,7 +94,7 @@ int truncate_vnode(struct vnode *vp, off_t newsize);
 int rdlink_direct(char *orig_path, char *link_path, struct fproc *rfp);
 
 /* lock.c */
-int lock_op(int fd, int req, vir_bytes arg);
+int lock_op(struct filp *f, int req);
 void lock_revive(void);
 
 /* main.c */
@@ -145,7 +138,7 @@ void unmount_all(int force);
 /* open.c */
 int do_close(void);
 int close_fd(struct fproc *rfp, int fd_nr);
-int common_open(char path[PATH_MAX], int oflags, mode_t omode, int for_exec);
+int common_open(char path[PATH_MAX], int oflags, mode_t omode);
 int do_creat(void);
 int do_lseek(void);
 int do_mknod(void);
@@ -176,9 +169,9 @@ int pipe_check(struct filp *filp, int rw_flag, int oflags, int bytes,
 void release(struct vnode *vp, int op, int count);
 void revive(endpoint_t proc_e, int returned);
 void suspend(int why);
-void pipe_suspend(int callnr, int fd, vir_bytes buf, size_t size,
-	size_t cum_io);
+void pipe_suspend(struct filp *rfilp, vir_bytes buf, size_t size);
 void unsuspend_by_endpt(endpoint_t proc_e);
+void wait_for(endpoint_t proc_e);
 
 /* protect.c */
 int do_access(void);
@@ -196,17 +189,17 @@ void lock_bsf(void);
 void unlock_bsf(void);
 void check_bsf_lock(void);
 int do_read_write_peek(int rw_flag, int fd, vir_bytes buf, size_t bytes);
-int actual_read_write_peek(struct fproc *rfp, int rw_flag, int fd,
-	vir_bytes buf, size_t bytes);
-int read_write(struct fproc *rfp, int rw_flag, int fd, struct filp *f,
-	vir_bytes buffer, size_t nbytes, endpoint_t for_e);
-int rw_pipe(int rw_flag, endpoint_t usr, struct filp *f, int callnr, int fd,
-	vir_bytes buf, size_t nbytes, size_t cum_io);
+int actual_read_write_peek(struct fproc *rfp, int rw_flag, int fd, vir_bytes buf,
+	size_t bytes);
+int read_write(struct fproc *rfp, int rw_flag, struct filp *f, vir_bytes buffer,
+	size_t nbytes, endpoint_t for_e);
+int rw_pipe(int rw_flag, endpoint_t usr, struct filp *f, vir_bytes buf,
+	size_t req_size);
 
 /* request.c */
 int req_breadwrite(endpoint_t fs_e, endpoint_t user_e, dev_t dev, off_t pos,
 	unsigned int num_of_bytes, vir_bytes user_addr, int rw_flag,
-	off_t *new_posp, size_t *cum_iop);
+	off_t *new_posp, unsigned int *cum_iop);
 int req_chmod(endpoint_t fs_e, ino_t inode_nr, mode_t rmode,
 	mode_t *new_modep);
 int req_chown(endpoint_t fs_e, ino_t inode_nr, uid_t newuid, gid_t newgid,
@@ -238,7 +231,7 @@ int req_readsuper(struct vmnt *vmp, char *driver_name, dev_t dev, int readonly,
 	int isroot, struct node_details *res_nodep, unsigned int *fs_flags);
 int req_readwrite(endpoint_t fs_e, ino_t inode_nr, off_t pos, int rw_flag,
 	endpoint_t user_e, vir_bytes user_addr, unsigned int num_of_bytes,
-	off_t *new_posp, size_t *cum_iop);
+	off_t *new_posp, unsigned int *cum_iop);
 int req_bpeek(endpoint_t fs_e, dev_t dev, off_t pos, unsigned int num_of_bytes);
 int req_peek(endpoint_t fs_e, ino_t inode_nr, off_t pos, unsigned int bytes);
 int req_rename(endpoint_t fs_e, ino_t old_dir, char *old_name, ino_t new_dir,
@@ -253,27 +246,6 @@ int req_unmount(endpoint_t fs_e);
 int req_utime(endpoint_t fs_e, ino_t inode_nr, struct timespec * actv,
 	struct timespec * modtv);
 int req_newdriver(endpoint_t fs_e, dev_t dev, char *label);
-
-/* socket.c */
-int do_socket(void);
-int do_socketpair(void);
-int do_bind(void);
-int do_connect(void);
-int do_listen(void);
-int do_accept(void);
-void resume_accept(struct fproc *rfp, int status, dev_t dev,
-	unsigned int addr_len, int listen_fd);
-int do_sendto(void);
-int do_recvfrom(void);
-void resume_recvfrom(struct fproc *rfp, int status, unsigned int addr_len);
-int do_sockmsg(void);
-void resume_recvmsg(struct fproc *rfp, int status, unsigned int ctl_len,
-	unsigned int addr_len, int flags, vir_bytes msg_buf);
-int do_setsockopt(void);
-int do_getsockopt(void);
-int do_getsockname(void);
-int do_getpeername(void);
-int do_shutdown(void);
 
 /* stadir.c */
 int do_chdir(void);
@@ -303,12 +275,13 @@ int tll_unlock(tll_t *tllp);
 void tll_upgrade(tll_t *tllp);
 
 /* utility.c */
+struct timespec clock_timespec(void);
 int copy_path(char *dest, size_t size);
 int fetch_name(vir_bytes path, size_t len, char *dest);
 int isokendpt_f(const char *f, int l, endpoint_t e, int *p, int ft);
 int in_group(struct fproc *rfp, gid_t grp);
-int sys_datacopy_wrapper(endpoint_t src, vir_bytes srcv, endpoint_t dst,
-	vir_bytes dstv, size_t len);
+int sys_datacopy_wrapper(endpoint_t src, vir_bytes srcv, endpoint_t dst, vir_bytes dstv,
+	size_t len);
 
 #define okendpt(e, p) isokendpt_f(__FILE__, __LINE__, (e), (p), 1)
 #define isokendpt(e, p) isokendpt_f(__FILE__, __LINE__, (e), (p), 0)
@@ -358,15 +331,12 @@ void select_callback(struct filp *, int ops);
 void select_forget(void);
 void select_reply1(endpoint_t driver_e, devminor_t minor, int status);
 void select_reply2(endpoint_t driver_e, devminor_t minor, int status);
+void select_timeout_check(minix_timer_t *);
 void select_unsuspend_by_endpt(endpoint_t proc);
-void select_dump(void);
 
 /* worker.c */
 void worker_init(void);
-void worker_cleanup(void);
-int worker_idle(void);
 int worker_available(void);
-void worker_allow(int allow);
 struct worker_thread *worker_get(thread_t worker_tid);
 void worker_signal(struct worker_thread *worker);
 int worker_can_start(struct fproc *rfp);
@@ -374,7 +344,6 @@ void worker_start(struct fproc *rfp, void (*func)(void), message *m_ptr,
 	int use_spare);
 void worker_stop(struct worker_thread *worker);
 void worker_stop_by_endpt(endpoint_t proc_e);
-void worker_yield(void);
 void worker_wait(void);
 struct worker_thread *worker_suspend(void);
 void worker_resume(struct worker_thread *org_self);

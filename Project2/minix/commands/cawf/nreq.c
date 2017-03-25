@@ -116,7 +116,11 @@ static struct nr_req {
  *		     buffer with request status of (brk)
  */
 
-void Nreq(unsigned char *line, int brk) {
+void
+Nreq(line, brk)
+	unsigned char *line;
+	int brk;
+{
 	unsigned char c[3];		/* command buffer */
 	int cmp, hi, low, mid;		/* binary search indixes */
 
@@ -148,7 +152,11 @@ void Nreq(unsigned char *line, int brk) {
  * Adjust - "^[.']ad"
  */
 
-static void nr_ad(unsigned char *line, int brk) {
+static void
+nr_ad(line, brk)
+	unsigned char *line;
+	int brk;
+{
 	Pass3(NOBREAK, (unsigned char *)"both", NULL, 0);
 }
 
@@ -157,7 +165,11 @@ static void nr_ad(unsigned char *line, int brk) {
 * Begin new page - "^[.']bp"
 */
 
-static void nr_bp(unsigned char *line, int brk) {
+static void
+nr_bp(line, brk)
+	unsigned char *line;
+	int brk;
+{
 	Pass3(brk, (unsigned char *)"need", NULL, 999);
 }
 
@@ -166,7 +178,11 @@ static void nr_bp(unsigned char *line, int brk) {
 * Break - "^[.']br"
 */
 
-static void nr_br(unsigned char *line, int brk) {
+static void
+nr_br(line, brk)
+	unsigned char *line;
+	int brk;
+{
 	Pass3(brk, (unsigned char *)"flush", NULL, 0);
 }
 
@@ -175,7 +191,11 @@ static void nr_br(unsigned char *line, int brk) {
  * Center - "^[.']ce"
  */
 
-static void nr_ce(unsigned char *line, int brk) {
+static void
+nr_ce(line, brk)
+	unsigned char *line;
+	int brk;
+{
 	unsigned char *s;			/* string poiner */
 
 	if ((s = Field(2, line, 0)) != NULL)
@@ -189,7 +209,11 @@ static void nr_ce(unsigned char *line, int brk) {
  * Diversion on and off - "^[.']di"
  */
 
-static void nr_di(unsigned char *line, int brk) {
+static void
+nr_di(line, brk)
+	unsigned char *line;
+	int brk;
+{
 	Pass3(DOBREAK, (unsigned char *)"flush", NULL, 0);
 	Divert ^= 1;
 }
@@ -199,7 +223,11 @@ static void nr_di(unsigned char *line, int brk) {
  * Define string - "^[.']ds"
  */
 
-static void nr_ds(unsigned char *line, int brk) {
+static void
+nr_ds(line, brk)
+	unsigned char *line;
+	int brk;
+{
 	unsigned char buf[MAXLINE];	/* temporary buffer */
 	unsigned char nm[4], nm1[4];	/* name buffers */
 	unsigned char *s1, *s2, *s3,	/* temporary string pointers */
@@ -235,7 +263,11 @@ static void nr_ds(unsigned char *line, int brk) {
  * Fill - "^[.']fi"
  */
 
-static void nr_fi(unsigned char *line, int brk) {
+static void
+nr_fi(line, brk)
+	unsigned char *line;
+	int brk;
+{
 	Fill = 1;
 	Pass3(brk, (unsigned char *)"flush", NULL, 0);
 }
@@ -245,7 +277,11 @@ static void nr_fi(unsigned char *line, int brk) {
  * Flush - "^[.']fl"
  */
 
-static void nr_fl(unsigned char *line, int brk) {
+static void
+nr_fl(line, brk)
+	unsigned char *line;
+	int brk;
+{
 	Pass3(brk, (unsigned char *)"flush", NULL, 0);
 }
 
@@ -254,7 +290,11 @@ static void nr_fl(unsigned char *line, int brk) {
  * Font - "^[.']ft <font_name>"
  */
 
-static void nr_ft(unsigned char *line, int brk) {
+static void
+nr_ft(line, brk)
+	unsigned char *line;
+	int brk;
+{
 	int i;				/* temporary index */
 
 	if (line[3] == '\0' || line[4] == '\0')
@@ -280,7 +320,12 @@ static void nr_ft(unsigned char *line, int brk) {
  * Input trap - "^[.']it [1 <request>]"
  */
 
-static void nr_it(unsigned char *line, int brk) {
+static void
+nr_it(line, brk)
+	unsigned char *line;
+	int brk;
+
+{
 	unsigned char buf[MAXLINE];	/* temporary buffer */
 	int i;				/* temporary index */
 	unsigned char *s1, *s2;		/* temporary string pointers */
@@ -322,7 +367,11 @@ static void nr_it(unsigned char *line, int brk) {
  *
  */
 
-static void nr_nil(unsigned char *line, int brk) {
+static void
+nr_nil(line, brk)
+	unsigned char *line;
+	int brk;
+{
 }
 
 
@@ -330,7 +379,11 @@ static void nr_nil(unsigned char *line, int brk) {
  * No adjust "^[.']na"
  */
 
-static void nr_na(unsigned char *line, int brk) {
+static void
+nr_na(line, brk)
+	unsigned char *line;
+	int brk;
+{
 	Pass3(NOBREAK, (unsigned char *)"left", NULL, 0);
 }
 
@@ -339,7 +392,11 @@ static void nr_na(unsigned char *line, int brk) {
  * No fill - "^[.']nf"
  */
 
-static void nr_nf(unsigned char *line, int brk) {
+static void
+nr_nf(line, brk)
+	unsigned char *line;
+	int brk;
+{
 	Fill = 0;
 	Pass3(brk, (unsigned char *)"flush", NULL, 0);
 }
@@ -349,7 +406,11 @@ static void nr_nf(unsigned char *line, int brk) {
  * No space - "^[.']ns"
  */
 
-static void nr_ns(unsigned char *line, int brk) {
+static void
+nr_ns(line, brk)
+	unsigned char *line;
+	int brk;
+{
 	Pass3(NOBREAK, (unsigned char *)"nospace", NULL, 0);
 }
 
@@ -358,7 +419,11 @@ static void nr_ns(unsigned char *line, int brk) {
  * Remove macro or string - "^[.']rm"
  */
 
-static void nr_rm(unsigned char *line, int brk) {
+static void
+nr_rm(line, brk)
+	unsigned char *line;
+	int brk;
+{
 	int i;				/* temporary index */
 	unsigned char nm[4];		/* name buffer */
 
@@ -383,7 +448,11 @@ static void nr_rm(unsigned char *line, int brk) {
  * Rename macro or string - "^[.']rn"
  */
 
-static void nr_rn(unsigned char *line, int brk) {
+static void
+nr_rn(line, brk)
+	unsigned char *line;
+	int brk;
+{
 	int i, j;			/* temporary indexes */
 	unsigned char nm[4], nm1[4];	/* name buffers */
 	unsigned char *s1;		/* temporary string pointer */
@@ -422,7 +491,11 @@ static void nr_rn(unsigned char *line, int brk) {
  * Remove register - "^[.']rr"
  */
 
-static void nr_rr(unsigned char *line, int brk) {
+static void
+nr_rr(line, brk)
+	unsigned char *line;
+	int brk;
+{
 	int i;				/* temporary index */
 	unsigned char nm[4];		/* name buffer */
 
@@ -442,7 +515,11 @@ static void nr_rr(unsigned char *line, int brk) {
  * Resume space - "^[.']rs"
  */
 
-static void nr_rs(unsigned char *line, int brk) {
+static void
+nr_rs(line, brk)
+	unsigned char *line;
+	int brk;
+{
 	Pass3(NOBREAK, (unsigned char *)"yesspace", NULL, 0);
 }
 
@@ -451,7 +528,11 @@ static void nr_rs(unsigned char *line, int brk) {
  * Message - "^[.']tm"
  */
 
-static void nr_tm(unsigned char *line, int brk) {
+static void
+nr_tm(line, brk)
+	unsigned char *line;
+	int brk;
+{
 	Pass3(MESSAGE, Inname, (line[3] == ' ') ? &line[4] : &line[3], NR);
 }
 
@@ -460,7 +541,11 @@ static void nr_tm(unsigned char *line, int brk) {
  * Translate - "^[.']tr abcd..."
  */
 
-static void nr_tr(unsigned char *line, int brk) {
+static void
+nr_tr(line, brk)
+	unsigned char *line;
+	int brk;
+{
 	unsigned char buf[MAXLINE];	/* temporary buffer */
 	int i, j;			/* temporary indexes */
 	unsigned char nm[4], nm1[4];	/* name buffers */
@@ -635,7 +720,11 @@ assemble_output:
  * NH = initialize number headers
  */
 
-static void nr_Ub(unsigned char *line, int brk) {
+static void
+nr_Ub(line, brk)
+	unsigned char *line;
+	int brk;
+{
 	int i;				/* temporary index */
 	unsigned char *s1, *s2;		/* temporary string pointers */
 
@@ -661,7 +750,11 @@ static void nr_Ub(unsigned char *line, int brk) {
  * Character definitions - "^[.']\^c"
  */
 
-static void nr_Uc(unsigned char *line, int brk) {
+static void
+nr_Uc(line, brk)
+	unsigned char *line;
+	int brk;
+{
 	unsigned char buf[MAXLINE];	/* temporary buffer */
 	int i;				/* temporary index */
 	unsigned char *s1, *s2, *s3,	/* temporary string pointers */
@@ -690,7 +783,7 @@ static void nr_Uc(unsigned char *line, int brk) {
 		if (*s4)
 			s4++;
 	}
-	while ((*s1++ = *s4++))
+	while (*s1++ = *s4++)
 		;
 	if (*s2 == 'h' && *(s2+1) == 'y')
 		(void) Findhy(buf, i, 1);
@@ -703,7 +796,11 @@ static void nr_Uc(unsigned char *line, int brk) {
  * Font is OK - "[.']\^f <font_name_character>"
  */
 
-static void nr_Uf(unsigned char *line, int brk) {
+static void
+nr_Uf(line, brk)
+	unsigned char *line;
+	int brk;
+{
 	int i;				/* temporary index */
 
 	if (line[3] != '\0' && line[4] != '\0') {
@@ -722,7 +819,11 @@ static void nr_Uf(unsigned char *line, int brk) {
  * Resolutions - "[.']\^r cpi horizontal vertical"
  */
 
-static void nr_Ur(unsigned char *line, int brk) {
+static void
+nr_Ur(line, brk)
+	unsigned char *line;
+	int brk;
+{
 	unsigned char buf[MAXLINE];	/* temporary buffer */
 	int i, j;			/* temporary indexes */
 	double tval;			/* temporary value */
@@ -758,7 +859,11 @@ static void nr_Ur(unsigned char *line, int brk) {
  * Lock line number and file name - "^[.']\^= <number> <file>"
  */
 
-static void nr_UL(unsigned char *line, int brk) {
+static void
+nr_UL(line, brk)
+	unsigned char *line;
+	int brk;
+{
 	unsigned char *s1;		/* temporary string pointer */
 
 	if ((s1 = Field(2, line, 0)) != NULL)

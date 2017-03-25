@@ -131,7 +131,7 @@ int op;				/* special actions */
 	/* Create the double indirect block. */
 		if ( (b2 = alloc_block(rip, rip->i_bsearch) ) == NO_BLOCK) {
 			/* Release triple ind blk. */
-			put_block(bp_tindir);
+			put_block(bp_tindir, INDIRECT_BLOCK);
 			ext2_debug("failed to allocate dblock near %d\n", rip->i_block[0]);
 			return(ENOSPC);
 		}
@@ -174,8 +174,8 @@ int op;				/* special actions */
   if (b1 == NO_BLOCK && !(op & WMAP_FREE)) {
 	if ( (b1 = alloc_block(rip, rip->i_bsearch) ) == NO_BLOCK) {
 		/* Release dbl and triple indirect blks. */
-		put_block(bp_dindir);
-		put_block(bp_tindir);
+		put_block(bp_dindir, INDIRECT_BLOCK);
+		put_block(bp_tindir, INDIRECT_BLOCK);
 		ext2_debug("failed to allocate dblock near %d\n", rip->i_block[0]);
 		return(ENOSPC);
 	}
@@ -226,16 +226,20 @@ int op;				/* special actions */
 		rip->i_blocks += rip->i_sp->s_sectors_in_block;
 	}
 	/* b1 equals NO_BLOCK only when we are freeing up the indirect block. */
-	if(b1 != NO_BLOCK)
+	if(b1 == NO_BLOCK)
+		lmfs_markclean(bp);
+	else
 		lmfs_markdirty(bp);
-	put_block(bp);
+	put_block(bp, INDIRECT_BLOCK);
   }
 
   /* If the single indirect block isn't there (or was just freed),
    * see if we have to keep the double indirect block, if any.
+   * If we don't have to keep it, don't bother writing it out.
    */
   if (b1 == NO_BLOCK && !single && b2 != NO_BLOCK &&
      empty_indir(bp_dindir, rip->i_sp)) {
+	lmfs_markclean(bp_dindir);
 	free_block(rip->i_sp, b2);
 	rip->i_blocks -= rip->i_sp->s_sectors_in_block;
 	b2 = NO_BLOCK;
@@ -248,16 +252,18 @@ int op;				/* special actions */
   }
   /* If the double indirect block isn't there (or was just freed),
    * see if we have to keep the triple indirect block, if any.
+   * If we don't have to keep it, don't bother writing it out.
    */
   if (b2 == NO_BLOCK && triple && b3 != NO_BLOCK &&
      empty_indir(bp_tindir, rip->i_sp)) {
+	lmfs_markclean(bp_tindir);
 	free_block(rip->i_sp, b3);
 	rip->i_blocks -= rip->i_sp->s_sectors_in_block;
 	rip->i_block[EXT2_TIND_BLOCK] = NO_BLOCK;
   }
 
-  put_block(bp_dindir);			/* release double indirect blk */
-  put_block(bp_tindir);			/* release triple indirect blk */
+  put_block(bp_dindir, INDIRECT_BLOCK);	/* release double indirect blk */
+  put_block(bp_tindir, INDIRECT_BLOCK);	/* release triple indirect blk */
 
   return(OK);
 }
@@ -307,7 +313,7 @@ register struct inode *rip;	/* pointer to inode */
 off_t position;			/* file pointer */
 {
 /* Acquire a new block and return a pointer to it. */
-  struct buf *bp;
+  register struct buf *bp;
   int r;
   block_t b;
 
@@ -355,10 +361,8 @@ off_t position;			/* file pointer */
 	}
   }
 
-  r = lmfs_get_block_ino(&bp, rip->i_dev, b, NO_READ, rip->i_num,
-	rounddown(position, rip->i_sp->s_block_size));
-  if (r != OK)
-	panic("ext2: error getting block (%llu,%u): %d", rip->i_dev, b, r);
+  bp = lmfs_get_block_ino(rip->i_dev, b, NO_READ, rip->i_num,
+  	rounddown(position, rip->i_sp->s_block_size));
   zero_block(bp);
   return(bp);
 }
@@ -370,7 +374,8 @@ void zero_block(bp)
 register struct buf *bp;	/* pointer to buffer to zero */
 {
 /* Zero a block. */
+  ASSERT(lmfs_bytes(bp) > 0);
   ASSERT(bp->data);
-  memset(b_data(bp), 0, lmfs_fs_block_size());
+  memset(b_data(bp), 0, (size_t) lmfs_bytes(bp));
   lmfs_markdirty(bp);
 }

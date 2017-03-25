@@ -18,8 +18,7 @@
 /*===========================================================================*
  *				do_gettime				     *
  *===========================================================================*/
-int
-do_gettime(void)
+int do_gettime()
 {
   clock_t ticks, realtime, clock;
   time_t boottime;
@@ -49,8 +48,7 @@ do_gettime(void)
 /*===========================================================================*
  *				do_getres				     *
  *===========================================================================*/
-int
-do_getres(void)
+int do_getres()
 {
   switch (m_in.m_lc_pm_time.clk_id) {
 	case CLOCK_REALTIME:
@@ -67,12 +65,11 @@ do_getres(void)
 /*===========================================================================*
  *				do_settime				     *
  *===========================================================================*/
-int
-do_settime(void)
+int do_settime()
 {
   int s;
 
-  if (mp->mp_effuid != SUPER_USER) {
+  if (mp->mp_effuid != SUPER_USER) { 
       return(EPERM);
   }
 
@@ -90,36 +87,42 @@ do_settime(void)
 /*===========================================================================*
  *				do_time					     *
  *===========================================================================*/
-int
-do_time(void)
+int do_time()
 {
-/* Perform the time(tp) system call. */
-  struct timespec tv;
+/* Perform the time(tp) system call. This returns the time in seconds since 
+ * 1.1.1970.  MINIX is an astrophysically naive system that assumes the earth 
+ * rotates at a constant rate and that such things as leap seconds do not 
+ * exist.
+ */
+  clock_t ticks, realtime;
+  time_t boottime;
+  int s;
 
-  (void)clock_time(&tv);
+  if ( (s=getuptime(&ticks, &realtime, &boottime)) != OK)
+  	panic("do_time couldn't get uptime: %d", s);
 
-  mp->mp_reply.m_pm_lc_time.sec = tv.tv_sec;
-  mp->mp_reply.m_pm_lc_time.nsec = tv.tv_nsec;
+  mp->mp_reply.m_pm_lc_time.sec = boottime + (realtime / system_hz);
+  mp->mp_reply.m_pm_lc_time.nsec =
+	(uint32_t) ((realtime % system_hz) * 1000000000ULL / system_hz);
   return(OK);
 }
 
 /*===========================================================================*
  *				do_stime				     *
  *===========================================================================*/
-int
-do_stime(void)
+int do_stime()
 {
-/* Perform the stime(tp) system call. Retrieve the system's uptime (ticks
+/* Perform the stime(tp) system call. Retrieve the system's uptime (ticks 
  * since boot) and pass the new time in seconds at system boot to the kernel.
  */
   clock_t uptime, realtime;
   time_t boottime;
   int s;
 
-  if (mp->mp_effuid != SUPER_USER) {
+  if (mp->mp_effuid != SUPER_USER) { 
       return(EPERM);
   }
-  if ( (s=getuptime(&uptime, &realtime, &boottime)) != OK)
+  if ( (s=getuptime(&uptime, &realtime, &boottime)) != OK) 
       panic("do_stime couldn't get uptime: %d", s);
   boottime = m_in.m_lc_pm_time.sec - (realtime/system_hz);
 

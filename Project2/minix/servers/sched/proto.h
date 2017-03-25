@@ -1,6 +1,7 @@
 /* Function prototypes. */
 
 struct schedproc;
+#include <minix/timers.h>
 
 /* main.c */
 int main(void);
@@ -12,7 +13,6 @@ int do_start_scheduling(message *m_ptr);
 int do_stop_scheduling(message *m_ptr);
 int do_nice(message *m_ptr);
 void init_scheduling(void);
-void balance_queues(void);
 
 /* utility.c */
 int no_sys(int who_e, int call_nr);

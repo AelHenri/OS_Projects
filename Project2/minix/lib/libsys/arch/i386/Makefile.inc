@@ -7,10 +7,13 @@ HERE=${.CURDIR}/arch/${MACHINE_ARCH}
 SRCS+=  \
         get_randomness.c \
         getidle.c \
+        profile.c \
+        profile_extern.c \
         ser_putc.c \
         spin.c \
         sys_eniop.c \
         sys_in.c \
+        sys_int86.c \
         sys_out.c \
         sys_readbios.c \
         sys_sdevio.c \
@@ -21,6 +24,7 @@ SRCS+=  \
         sys_voutb.c \
         sys_voutl.c \
         sys_voutw.c \
+        timing.c \
         tsc_util.c \
         vbox.c
 

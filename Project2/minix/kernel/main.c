@@ -44,6 +44,7 @@ void bsp_finish_booting(void)
 #if SPROFILE
   sprofiling = 0;      /* we're not profiling until instructed to */
 #endif /* SPROFILE */
+  cprof_procs_no = 0;  /* init nr of hash table slots used */
 
   cpu_identify();
 
@@ -68,11 +69,8 @@ void bsp_finish_booting(void)
 	RTS_UNSET(proc_addr(i), RTS_PROC_STOP);
   }
   /*
-   * Enable timer interrupts and clock task on the boot CPU.  First reset the
-   * CPU accounting values, as the timer initialization (indirectly) uses them.
+   * enable timer interrupts and clock task on the boot CPU
    */
-  cycles_accounting_init();
-
   if (boot_cpu_init_timer(system_hz)) {
 	  panic("FATAL : failed to initialize timer interrupts, "
 			  "cannot continue without any clock source!");
@@ -93,6 +91,10 @@ void bsp_finish_booting(void)
 #if DEBUG_PROC_CHECK
   FIXME("PROC check enabled");
 #endif
+
+  DEBUGEXTRA(("cycles_accounting_init()... "));
+  cycles_accounting_init();
+  DEBUGEXTRA(("done\n"));
 
 #ifdef CONFIG_SMP
   cpu_set_flag(bsp_cpu_id, CPU_IS_READY);
@@ -153,12 +155,7 @@ void kmain(kinfo_t *local_cbi)
  
    DEBUGEXTRA(("main()\n"));
 
-  /* Clear the process table. Anounce each slot as empty and set up mappings
-   * for proc_addr() and proc_nr() macros. Do the same for the table with
-   * privilege structures for the system processes and the ipc filter pool.
-   */
-  proc_init();
-  IPCF_POOL_INIT();
+   proc_init();
 
    if(NR_BOOT_MODULES != kinfo.mbi.mi_mods_count)
    	panic("expecting %d boot processes/modules, found %d",
@@ -215,8 +212,6 @@ void kmain(kinfo_t *local_cbi)
 	    else if(iskerneln(proc_nr)) {
                 /* Privilege flags. */
                 priv(rp)->s_flags = (proc_nr == IDLE ? IDL_F : TSK_F);
-                /* Init flags. */
-                priv(rp)->s_init_flags = TSK_I;
                 /* Allowed traps. */
                 priv(rp)->s_trap_mask = (proc_nr == CLOCK 
                     || proc_nr == SYSTEM  ? CSK_T : TSK_T);
@@ -227,7 +222,6 @@ void kmain(kinfo_t *local_cbi)
             else {
 	    	assert(isrootsysn(proc_nr));
                 priv(rp)->s_flags= RSYS_F;        /* privilege flags */
-                priv(rp)->s_init_flags = SRV_I;   /* init flags */
                 priv(rp)->s_trap_mask= SRV_T;     /* allowed traps */
                 ipc_to_m = SRV_M;                 /* allowed targets */
                 kcalls = SRV_KC;                  /* allowed kernel calls */
@@ -337,13 +331,10 @@ static void announce(void)
 {
   /* Display the MINIX startup banner. */
   printf("\nMINIX %s. "
-#ifdef PAE
-"(PAE) "
-#endif
 #ifdef _VCS_REVISION
 	"(" _VCS_REVISION ")\n"
 #endif
-      "Copyright 2016, Vrije Universiteit, Amsterdam, The Netherlands\n",
+      "Copyright 2014, Vrije Universiteit, Amsterdam, The Netherlands\n",
       OS_RELEASE);
   printf("MINIX is open source software, see http://www.minix3.org\n");
 }
@@ -361,18 +352,19 @@ void prepare_shutdown(const int how)
    * argument passes the shutdown status. 
    */
   printf("MINIX will now be shut down ...\n");
-  set_kernel_timer(&shutdown_timer, get_monotonic() + system_hz,
-      minix_shutdown, how);
+  tmr_arg(&shutdown_timer)->ta_int = how;
+  set_kernel_timer(&shutdown_timer, get_monotonic() + system_hz, minix_shutdown);
 }
 
 /*===========================================================================*
  *				shutdown 				     *
  *===========================================================================*/
-void minix_shutdown(int how)
+void minix_shutdown(minix_timer_t *tp)
 {
 /* This function is called from prepare_shutdown or stop_sequence to bring 
  * down MINIX.
  */
+  int how;
 
 #ifdef CONFIG_SMP
   /* 
@@ -387,6 +379,8 @@ void minix_shutdown(int how)
 #endif
   hw_intr_disable_all();
   stop_local_timer();
+
+  how = tp ? tmr_arg(tp)->ta_int : 0;
 
   /* Show shutdown message */
   direct_cls();
@@ -403,12 +397,13 @@ void minix_shutdown(int how)
 /*===========================================================================*
  *				cstart					     *
  *===========================================================================*/
-void cstart(void)
+void cstart()
 {
 /* Perform system initializations prior to calling main(). Most settings are
  * determined with help of the environment strings passed by MINIX' loader.
  */
   register char *value;				/* value in key=value pair */
+  int h;
 
   /* low-level initialization */
   prot_init();
@@ -417,15 +412,12 @@ void cstart(void)
   if ((value = env_get(VERBOSEBOOTVARNAME)))
 	  verboseboot = atoi(value);
 
-  /* Initialize clock variables. */
-  init_clock();
-
-  /* Get memory parameters. */
-  value = env_get("ac_layout");
-  if(value && atoi(value)) {
-        kinfo.user_sp = (vir_bytes) USR_STACKTOP_COMPACT;
-        kinfo.user_end = (vir_bytes) USR_DATATOP_COMPACT;
-  }
+  /* Get clock tick frequency. */
+  value = env_get("hz");
+  if(value)
+	system_hz = atoi(value);
+  if(!value || system_hz < 2 || system_hz > 50000)	/* sanity check */
+	system_hz = DEFAULT_HZ;
 
   DEBUGEXTRA(("cstart\n"));
 
@@ -435,12 +427,10 @@ void cstart(void)
   strlcpy(kinfo.release, OS_RELEASE, sizeof(kinfo.release));
   strlcpy(kinfo.version, OS_VERSION, sizeof(kinfo.version));
 
-  /* Initialize various user-mapped structures. */
-  memset(&arm_frclock, 0, sizeof(arm_frclock));
-
-  memset(&kuserinfo, 0, sizeof(kuserinfo));
-  kuserinfo.kui_size = sizeof(kuserinfo);
-  kuserinfo.kui_user_sp = kinfo.user_sp;
+  /* Load average data initialization. */
+  kloadinfo.proc_last_slot = 0;
+  for(h = 0; h < _LOAD_HISTORY; h++)
+	kloadinfo.proc_load_history[h] = 0;
 
 #ifdef USE_APIC
   value = env_get("no_apic");

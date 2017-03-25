@@ -172,7 +172,7 @@ void timed_test_func(const char *s, void (* func)(void))
 }
 
 pid_t traced_fork(c)
-void (*c)(void);
+void(*c) (void);
 {
   pid_t pid;
   int r, status;
@@ -333,9 +333,6 @@ void (*c)(void);
 	detach_running(ppid);
 
 	break;
-
-  default:
-	abort();
   }
 
   return pid;
@@ -464,7 +461,7 @@ int sig;
   case SIGUSR1: bit = 1; break;
   case SIGUSR2: bit = 2; break;
   case SIGTERM: bit = 4; break;
-  default: bit = 0; my_e(100);
+  default: my_e(100);
   }
 
   sigfillset(&set);

@@ -1,5 +1,5 @@
 SCRIPTS= netconf.sh
 BINDIR= /bin
-MAN= netconf.8
+MAN=
 
 .include <bsd.prog.mk>

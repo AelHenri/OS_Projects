@@ -28,9 +28,9 @@ Testing the Code
 
 Starting up an instance:
 
-/sbin/minix-service up /service/tps65950 -label tps65950.1.48 \
+/bin/service up /service/tps65950 -label tps65950.1.48 \
 	-args 'bus=1 address=0x48'
 
 Killing an instance:
 
-/sbin/minix-service down tps65950.1.48
+/bin/service down tps65950.1.48

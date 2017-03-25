@@ -171,7 +171,7 @@ start_socket_server(int port)
 #if !defined(__minix)
 	int yes = 1;
 #endif
-	int fd_sock, fd_new;
+	int fd_sock, fd_new, r;
 	struct sockaddr_in my_addr;
 	struct sockaddr_in other_addr;
 	socklen_t other_size;
@@ -220,7 +220,7 @@ start_socket_server(int port)
 		e(5);
 	}
 
-	(void)read(fd_new, buf, sizeof(buf));
+	r = read(fd_new, buf, sizeof(buf));
 	exit(0);
 }
 

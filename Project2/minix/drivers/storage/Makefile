@@ -8,10 +8,7 @@ SUBDIR+=	filter
 SUBDIR+=	virtio_blk
 .  endif # ${MACHINE_ARCH} == "i386"
 
-.  if ${MACHINE_ARCH} == "earm"
 SUBDIR+=	mmc
-.  endif # ${MACHINE_ARCH} == "earm"
-
 SUBDIR+=	vnd
 .endif # ${MKIMAGEONLY} == "no"
 

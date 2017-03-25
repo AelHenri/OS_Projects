@@ -34,8 +34,10 @@
  * Expand(line) - expand macro or if/ie/el line
  */
 
-void Expand(unsigned char *line) {
-
+void
+Expand(line)
+	unsigned char *line;
+{
 	unsigned char buf[2*MAXLINE];	/* line buffer */
 	unsigned char cmd[4];		/* nroff command */
 	int cmdl;			/* command length */
@@ -106,7 +108,7 @@ void Expand(unsigned char *line) {
 						cond = 1;
 			}
 		}
-
+		
 		else if (regexec(Pat[3].pat, lp)) {
 	    /*
 	     * Argument string comparison: - "^[.']i[ef] !?'\\\$[0-9]'[^']*' "
@@ -127,7 +129,7 @@ void Expand(unsigned char *line) {
 				iflen += n2 + 2;
 			}
 		}
-
+		
 		else if (regexec(Pat[4].pat, lp)) {
 	    /*
 	     * Nroff or troff: - "^[.']i[ef] !?[nt] "
@@ -136,7 +138,7 @@ void Expand(unsigned char *line) {
 			if (*(lp + iflen - 2) == 'n')
 				cond = 1;
 		}
-
+		
 		else if ((*lp == '.' || *lp == '\'')
 		     &&  strncmp((char *)lp+1, "el ", 3) == 0) {
 	    /*
@@ -145,7 +147,7 @@ void Expand(unsigned char *line) {
 			cond = 1 - prevcond;
 			iflen = 4;
 		}
-
+		
 		else {
 	    /*
 	     * Unknown conditional:

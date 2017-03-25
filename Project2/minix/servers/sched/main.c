@@ -12,7 +12,6 @@
 /* Declare some local functions. */
 static void reply(endpoint_t whom, message *m_ptr);
 static void sef_local_startup(void);
-static int sef_cb_init_fresh(int type, sef_init_info_t *info);
 
 struct machine machine;		/* machine info */
 
@@ -27,9 +26,15 @@ int main(void)
 	int who_e;	/* caller's endpoint */
 	int result;	/* result to system call */
 	int rv;
+	int s;
 
 	/* SEF local startup. */
 	sef_local_startup();
+
+	if (OK != (s=sys_getmachine(&machine)))
+		panic("couldn't get machine info: %d", s);
+	/* Initialize scheduling timers, used for running balance_queues */
+	init_scheduling();
 
 	/* This is SCHED's main loop - get work and do it, forever and forever. */
 	while (TRUE) {
@@ -44,14 +49,14 @@ int main(void)
 		/* Check for system notifications first. Special cases. */
 		if (is_ipc_notify(ipc_status)) {
 			switch(who_e) {
-			case CLOCK:
-				balance_queues();
-				break;
-			default :
-				break;
+				case CLOCK:
+					expire_timers(m_in.m_notify.timestamp);
+					continue;	/* don't reply */
+				default :
+					result = ENOSYS;
 			}
 
-			continue; /* Don't reply. */
+			goto sendreply;
 		}
 
 		switch(call_nr) {
@@ -86,6 +91,7 @@ int main(void)
 			result = no_sys(who_e, call_nr);
 		}
 
+sendreply:
 		/* Send reply. */
 		if (result != SUSPEND) {
 			m_in.m_type = result;  		/* build reply message */
@@ -110,28 +116,10 @@ static void reply(endpoint_t who_e, message *m_ptr)
  *===========================================================================*/
 static void sef_local_startup(void)
 {
-	/* Register init callbacks. */
-	sef_setcb_init_fresh(sef_cb_init_fresh);
-	sef_setcb_init_restart(SEF_CB_INIT_RESTART_STATEFUL);
-
+	/* No init callbacks for now. */
+	/* No live update support for now. */
 	/* No signal callbacks for now. */
 
 	/* Let SEF perform startup. */
 	sef_startup();
 }
-
-/*===========================================================================*
- *		            sef_cb_init_fresh                                *
- *===========================================================================*/
-static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *UNUSED(info))
-{
-	int s;
-
-	if (OK != (s=sys_getmachine(&machine)))
-		panic("couldn't get machine info: %d", s);
-	/* Initialize scheduling timers, used for running balance_queues */
-	init_scheduling();
-
-	return(OK);
-}
-

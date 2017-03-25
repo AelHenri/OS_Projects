@@ -263,7 +263,7 @@ virtio_alloc_queues(struct virtio_device *dev, int num_queues)
 
 	memset(dev->queues, 0, num_queues * sizeof(dev->queues[0]));
 
-	if ((r = init_phys_queues(dev)) != OK) {
+	if ((r = init_phys_queues(dev) != OK)) {
 		printf("%s: Could not initialize queues (%d)\n", dev->name, r);
 		free(dev->queues);
 		dev->queues = NULL;
@@ -502,7 +502,7 @@ clear_indirect_table(struct virtio_device *dev, struct vring_desc *vd)
 }
 
 
-inline static void
+static void inline
 use_vring_desc(struct vring_desc *vd, struct vumap_phys *vp)
 {
 	vd->addr = vp->vp_addr & ~1UL;
@@ -521,10 +521,7 @@ set_indirect_descriptors(struct virtio_device *dev, struct virtio_queue *q,
 	int i;
 	struct indirect_desc_table *desc;
 	struct vring *vring = &q->vring;
-	struct vring_desc *vd, *ivd = NULL;
-
-	if (0 == num)
-		return;
+	struct vring_desc *vd, *ivd;
 
 	/* Find the first unused indirect descriptor table */
 	for (i = 0; i < dev->num_indirect; i++) {
@@ -552,7 +549,7 @@ set_indirect_descriptors(struct virtio_device *dev, struct virtio_queue *q,
 	vd->len = num * sizeof(desc->descs[0]);
 
 	/* Initialize the descriptors in the indirect descriptor table */
-	for (i = 0; i < (int)num; i++) {
+	for (i = 0; i < num; i++) {
 		ivd = &desc->descs[i];
 
 		use_vring_desc(ivd, &bufs[i]);
@@ -560,8 +557,7 @@ set_indirect_descriptors(struct virtio_device *dev, struct virtio_queue *q,
 	}
 
 	/* Unset the next bit of the last descriptor */
-	if (NULL != ivd)
-		ivd->flags = ivd->flags & ~VRING_DESC_F_NEXT;
+	ivd->flags = ivd->flags & ~VRING_DESC_F_NEXT;
 
 	/* Update queue, only a single descriptor was used */
 	q->free_num -= 1;
@@ -576,9 +572,6 @@ set_direct_descriptors(struct virtio_queue *q, struct vumap_phys *bufs,
 	size_t count;
 	struct vring *vring = &q->vring;
 	struct vring_desc *vd;
-
-	if (0 == num)
-		return;
 
 	for (i = q->free_head, count = 0; count < num; count++) {
 
@@ -646,8 +639,7 @@ virtio_to_queue(struct virtio_device *dev, int qidx, struct vumap_phys *bufs,
 }
 
 int
-virtio_from_queue(struct virtio_device *dev, int qidx, void **data,
-	size_t *len)
+virtio_from_queue(struct virtio_device *dev, int qidx, void **data)
 {
 	struct virtio_queue *q;
 	struct vring *vring;
@@ -726,9 +718,6 @@ virtio_from_queue(struct virtio_device *dev, int qidx, void **data,
 	*data = q->data[uel->id];
 	q->data[uel->id] = NULL;
 
-	if (len != NULL)
-		*len = uel->len;
-
 	return 0;
 }
 
@@ -750,7 +739,7 @@ void
 virtio_irq_enable(struct virtio_device *dev)
 {
 	int r;
-	if ((r = sys_irqenable(&dev->irq_hook)) != OK)
+	if ((r = sys_irqenable(&dev->irq_hook) != OK))
 		panic("%s Unable to enable IRQ %d", dev->name, r);
 }
 
@@ -758,7 +747,7 @@ void
 virtio_irq_disable(struct virtio_device *dev)
 {
 	int r;
-	if ((r = sys_irqdisable(&dev->irq_hook)) != OK)
+	if ((r = sys_irqdisable(&dev->irq_hook) != OK))
 		panic("%s: Unable to disable IRQ %d", dev->name, r);
 }
 
@@ -790,7 +779,7 @@ static void
 virtio_irq_register(struct virtio_device *dev)
 {
 	int r;
-	if ((r = sys_irqsetpolicy(dev->irq, 0, &dev->irq_hook)) != OK)
+	if ((r = sys_irqsetpolicy(dev->irq, 0, &dev->irq_hook) != OK))
 		panic("%s: Unable to register IRQ %d", dev->name, r);
 }
 
@@ -798,7 +787,7 @@ static void
 virtio_irq_unregister(struct virtio_device *dev)
 {
 	int r;
-	if ((r = sys_irqrmpolicy(&dev->irq_hook)) != OK)
+	if ((r = sys_irqrmpolicy(&dev->irq_hook) != OK))
 		panic("%s: Unable to unregister IRQ %d", dev->name, r);
 }
 

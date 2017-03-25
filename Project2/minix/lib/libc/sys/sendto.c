@@ -1,6 +1,5 @@
 #include <sys/cdefs.h>
 #include "namespace.h"
-#include <lib.h>
 
 #include <assert.h>
 #include <errno.h>
@@ -14,7 +13,7 @@
 
 #include <net/gen/in.h>
 #include <net/gen/ip_hdr.h>
-#include <net/gen/ip_io.h>
+#include <net/gen/icmp_hdr.h>
 #include <net/gen/tcp.h>
 #include <net/gen/tcp_io.h>
 #include <net/gen/udp.h>
@@ -33,41 +32,13 @@ static ssize_t _uds_sendto_conn(int sock, const void *message, size_t length,
 static ssize_t _uds_sendto_dgram(int sock, const void *message, size_t length,
 	int flags, const struct sockaddr *dest_addr, socklen_t dest_len);
 
-/*
- * Send a message on a socket.
- */
-static ssize_t
-__sendto(int fd, const void * buffer, size_t length, int flags,
-	const struct sockaddr * dest_addr, socklen_t dest_len)
-{
-	message m;
-
-	memset(&m, 0, sizeof(m));
-	m.m_lc_vfs_sendrecv.fd = fd;
-	m.m_lc_vfs_sendrecv.buf = (vir_bytes)buffer;
-	m.m_lc_vfs_sendrecv.len = length;
-	m.m_lc_vfs_sendrecv.flags = flags;
-	m.m_lc_vfs_sendrecv.addr = (vir_bytes)dest_addr;
-	m.m_lc_vfs_sendrecv.addr_len = dest_len;
-
-	return _syscall(VFS_PROC_NR, VFS_SENDTO, &m);
-}
-
 ssize_t sendto(int sock, const void *message, size_t length, int flags,
 	const struct sockaddr *dest_addr, socklen_t dest_len)
 {
 	int r;
 	nwio_tcpopt_t tcpopt;
 	nwio_udpopt_t udpopt;
-	nwio_ipopt_t ipopt;
 	int uds_sotype = -1;
-
-	r = __sendto(sock, message, length, flags, dest_addr, dest_len);
-	if (r != -1 || (errno != ENOTSOCK && errno != ENOSYS))
-		return r;
-
-	/* For old socket driver implementations, this flag is the default. */
-	flags &= ~MSG_NOSIGNAL;
 
 	r= ioctl(sock, NWIOGTCPOPT, &tcpopt);
 	if (r != -1 || errno != ENOTTY)
@@ -105,19 +76,13 @@ ssize_t sendto(int sock, const void *message, size_t length, int flags,
 		}
 	}
 
-	r= ioctl(sock, NWIOGIPOPT, &ipopt);
-	if (r != -1 || errno != ENOTTY)
 	{
 		ip_hdr_t *ip_hdr;
-		const struct sockaddr_in *sinp;
-		ssize_t retval;
-		int saved_errno;
+		int ihl;
+		icmp_hdr_t *icmp_hdr;
+		struct sockaddr_in *sinp;
 
-		if (r == -1) {
-			return r;
-		}
-
-		sinp = (const struct sockaddr_in *)dest_addr;
+		sinp = (struct sockaddr_in *) __UNCONST(dest_addr);
 		if (sinp->sin_family != AF_INET)
 		{
 			errno= EAFNOSUPPORT;
@@ -125,24 +90,16 @@ ssize_t sendto(int sock, const void *message, size_t length, int flags,
 		}
 
 		/* raw */
-		/* XXX this is horrible: we have to copy the entire buffer
-		 * because we have to change one header field. Obviously we
-		 * can't modify the user buffer directly..
-		 */
-		if ((ip_hdr = malloc(length)) == NULL)
-			return -1; /* errno is ENOMEM */
-		memcpy(ip_hdr, message, length);
+		ip_hdr= (ip_hdr_t *)message;
 		ip_hdr->ih_dst= sinp->sin_addr.s_addr;
 
-		retval = write(sock, ip_hdr, length);
-
-		saved_errno = errno;
-		free(ip_hdr);
-		errno = saved_errno;
-		return retval;
+		return write(sock, message, length);
 	}
 
-	errno = ENOTSOCK;
+#if DEBUG
+	fprintf(stderr, "sendto: not implemented for fd %d\n", sock);
+#endif
+	errno= ENOSYS;
 	return -1;
 }
 
@@ -242,7 +199,7 @@ static ssize_t _udp_sendto(int sock, const void *message, size_t length,
 		errno= t_errno;
 		return -1;
 	}
-	assert((size_t)r == buflen);
+	assert(r == buflen);
 	free(buf);
 	return length;
 }

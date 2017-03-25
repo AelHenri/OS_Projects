@@ -6,6 +6,7 @@
 
 #define _MINIX_SYSTEM 1
 
+#include <minix/libminixfs.h>
 #include <minix/sysutil.h>
 #include <minix/syslib.h>
 #include <minix/vm.h>
@@ -22,7 +23,6 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <math.h>
-#include <minix/libminixfs.h>
 
 #include "testvm.h"
 
@@ -45,13 +45,6 @@ main(int argc, char *argv[])
 
 	start(73);
 
-	setuid(geteuid());
-
-	if(getuid() != 0) {
-		printf("Test 73 has to be run as root; test aborted\n");
-		exit(1);
-	}
-
 	unlink(pipefn);
 
 	/* 'big' as a substring indicates to testvm that it's ok to
@@ -68,14 +61,14 @@ main(int argc, char *argv[])
 
 	/* stop residual testvm service if any */
 	snprintf(cmdline, sizeof(cmdline), "%s down testvm >/dev/null 2>&1",
-		_PATH_MINIX_SERVICE);
+		_PATH_SERVICE);
 	if(system(cmdline) < 0) { e(9); exit(1); }
 
 	/* start the testvm service */
 	snprintf(cmdline, sizeof(cmdline),
 		"%s up /%s/../testvm -script /etc/rs.single "
 		"-args /%s/%s -config %s/../testvm.conf",
-			_PATH_MINIX_SERVICE, cwd, cwd, pipefn, cwd);
+			_PATH_SERVICE, cwd, cwd, pipefn, cwd);
 	if(system(cmdline) < 0) { e(10); exit(1); }
 
 	/* don't hang forever if the open or read block */

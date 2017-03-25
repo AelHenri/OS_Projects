@@ -26,8 +26,11 @@ RAMDISK_DEVICES="
 	c1d4 c1d4p0 c1d4p0s0 c1d5 c1d5p0 c1d5p0s0
 	c1d6 c1d6p0 c1d6p0s0 c1d7 c1d7p0 c1d7p0s0
 	fd0 fd1 fd0p0 fd1p0
-	pci
 	ttyc1 ttyc2 ttyc3 tty00 tty01 tty02 tty03
+	ttyp0 ttyp1 ttyp2 ttyp3 ttyp4 ttyp5 ttyp6 ttyp7 ttyp8 ttyp9
+	ttypa ttypb ttypc ttypd ttype ttypf
+	ttyq0 ttyq1 ttyq2 ttyq3 ttyq4 ttyq5 ttyq6 ttyq7 ttyq8 ttyq9
+	ttyqa ttyqb ttyqc ttyqd ttyqe ttyqf
 "
 
 #eth      => ip tcp udp
@@ -42,13 +45,9 @@ STD_DEVICES="
 	eepromb3s54 eepromb3s55 eepromb3s56 eepromb3s57
 	eth fb0 fbd filter hello
 	i2c-1 i2c-2 i2c-3
-	klog ptmx random
+	klog random
 	sht21b1s40 sht21b2s40 sht21b3s40
 	tsl2550b1s39 tsl2550b2s39 tsl2550b3s39
-	ttyp0 ttyp1 ttyp2 ttyp3 ttyp4 ttyp5 ttyp6 ttyp7 ttyp8 ttyp9
-	ttypa ttypb ttypc ttypd ttype ttypf
-	ttyq0 ttyq1 ttyq2 ttyq3 ttyq4 ttyq5 ttyq6 ttyq7 ttyq8 ttyq9
-	ttyqa ttyqb ttyqc ttyqd ttyqe ttyqf
 	uds
 	vnd0 vnd0p0 vnd0p0s0 vnd1 vnd1p0 vnd1p0s0
 	vnd2 vnd3 vnd4 vnd5 vnd6 vnd7
@@ -132,14 +131,12 @@ Where key is one of the following:
   eth ip tcp udp	  # One of these makes some TCP/IP devices
   audio mixer		  # Make audio devices
   klog                    # Make /dev/klog
-  ptmx                    # Make /dev/ptmx
   random                  # Make /dev/random, /dev/urandom
   uds                     # Make /dev/uds
   filter                  # Make /dev/filter
   fbd                     # Make /dev/fbd
   hello                   # Make /dev/hello
   video                   # Make /dev/video
-  pci                     # Make /dev/pci
   vnd0 vnd0p0 vnd0p0s0 .. # Make vnode disks /dev/vnd[0-7] and (sub)partitions
   input                   # Make /dev/kbdmux, /dev/kbd[0-3], idem /dev/mouse~
 EOF
@@ -191,7 +188,7 @@ for dev in ${DEVICES}
 do
 	# Reset the defaults
 	uname=root
-	gname=wheel
+	gname=operator
 	permissions=600
 
 	case ${dev} in
@@ -365,14 +362,6 @@ do
 				${uname} ${gname} 666
 			minor=`expr ${minor} + 4`
 		done
-		;;
-	pci)
-		# PCI server, manages PCI buses
-		makedev pci c 134 0 ${uname} ${gname} ${permissions}
-		;;
-	ptmx)
-		# Unix98 pseudoterminal master
-		makedev ptmx c 9 0 ${uname} tty 666
 		;;
 	ram|mem|kmem|null|boot|zero|imgrd)
 		# Memory devices.

@@ -29,6 +29,7 @@
 #include <minix/bitmap.h>
 
 #include <errno.h>
+#include <env.h>
 
 #include "glo.h"
 #include "vm.h"

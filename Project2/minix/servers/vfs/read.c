@@ -20,6 +20,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include "file.h"
+#include "scratchpad.h"
 #include "vnode.h"
 #include "vmnt.h"
 
@@ -29,17 +30,8 @@
  *===========================================================================*/
 int do_read(void)
 {
-
-  /*
-   * This field is currently reserved for internal usage only, and must be set
-   * to zero by the caller.  We may use it for future SA_RESTART support just
-   * like we are using it internally now.
-   */
-  if (job_m_in.m_lc_vfs_readwrite.cum_io != 0)
-	return(EINVAL);
-
   return(do_read_write_peek(READING, job_m_in.m_lc_vfs_readwrite.fd,
-	job_m_in.m_lc_vfs_readwrite.buf, job_m_in.m_lc_vfs_readwrite.len));
+          job_m_in.m_lc_vfs_readwrite.buf, job_m_in.m_lc_vfs_readwrite.len));
 }
 
 
@@ -89,8 +81,8 @@ void check_bsf_lock(void)
 /*===========================================================================*
  *				actual_read_write_peek			     *
  *===========================================================================*/
-int actual_read_write_peek(struct fproc *rfp, int rw_flag, int fd,
-	vir_bytes buf, size_t nbytes)
+int actual_read_write_peek(struct fproc *rfp, int rw_flag, int io_fd,
+	vir_bytes io_buf, size_t io_nbytes)
 {
 /* Perform read(fd, buffer, nbytes) or write(fd, buffer, nbytes) call. */
   struct filp *f;
@@ -100,8 +92,12 @@ int actual_read_write_peek(struct fproc *rfp, int rw_flag, int fd,
 
   if(rw_flag == WRITING) ro = 0;
 
+  scratch(rfp).file.fd_nr = io_fd;
+  scratch(rfp).io.io_buffer = io_buf;
+  scratch(rfp).io.io_nbytes = io_nbytes;
+
   locktype = rw_flag == WRITING ? VNODE_WRITE : VNODE_READ;
-  if ((f = get_filp2(rfp, fd, locktype)) == NULL)
+  if ((f = get_filp2(rfp, scratch(rfp).file.fd_nr, locktype)) == NULL)
 	return(err_code);
 
   assert(f->filp_count > 0);
@@ -110,12 +106,13 @@ int actual_read_write_peek(struct fproc *rfp, int rw_flag, int fd,
 	unlock_filp(f);
 	return(EBADF);
   }
-  if (nbytes == 0) {
+  if (scratch(rfp).io.io_nbytes == 0) {
 	unlock_filp(f);
 	return(0);	/* so char special files need not check for 0*/
   }
 
-  r = read_write(rfp, rw_flag, fd, f, buf, nbytes, who_e);
+  r = read_write(rfp, rw_flag, f, scratch(rfp).io.io_buffer,
+	scratch(rfp).io.io_nbytes, who_e);
 
   unlock_filp(f);
   return(r);
@@ -124,21 +121,20 @@ int actual_read_write_peek(struct fproc *rfp, int rw_flag, int fd,
 /*===========================================================================*
  *				do_read_write_peek			     *
  *===========================================================================*/
-int do_read_write_peek(int rw_flag, int fd, vir_bytes buf, size_t nbytes)
+int do_read_write_peek(int rw_flag, int io_fd, vir_bytes io_buf, size_t io_nbytes)
 {
-	return actual_read_write_peek(fp, rw_flag, fd, buf, nbytes);
+	return actual_read_write_peek(fp, rw_flag, io_fd, io_buf, io_nbytes);
 }
 
 /*===========================================================================*
  *				read_write				     *
  *===========================================================================*/
-int read_write(struct fproc *rfp, int rw_flag, int fd, struct filp *f,
+int read_write(struct fproc *rfp, int rw_flag, struct filp *f,
 	vir_bytes buf, size_t size, endpoint_t for_e)
 {
   register struct vnode *vp;
   off_t position, res_pos;
-  size_t cum_io, res_cum_io;
-  size_t cum_io_incr;
+  unsigned int cum_io, cum_io_incr, res_cum_io;
   int op, r;
   dev_t dev;
 
@@ -151,14 +147,17 @@ int read_write(struct fproc *rfp, int rw_flag, int fd, struct filp *f,
 
   if (size > SSIZE_MAX) return(EINVAL);
 
+  op = (rw_flag == READING ? CDEV_READ : CDEV_WRITE);
+
   if (S_ISFIFO(vp->v_mode)) {		/* Pipes */
+	if (rfp->fp_cum_io_partial != 0) {
+		panic("VFS: read_write: fp_cum_io_partial not clear");
+	}
 	if(rw_flag == PEEKING) {
 	  	printf("read_write: peek on pipe makes no sense\n");
 		return EINVAL;
 	}
-	assert(fd != -1);
-	op = (rw_flag == READING ? VFS_READ : VFS_WRITE);
-	r = rw_pipe(rw_flag, for_e, f, op, fd, buf, size, 0 /*cum_io*/);
+	r = rw_pipe(rw_flag, for_e, f, buf, size);
   } else if (S_ISCHR(vp->v_mode)) {	/* Character special files. */
 	if(rw_flag == PEEKING) {
 	  	printf("read_write: peek on char device makes no sense\n");
@@ -169,7 +168,6 @@ int read_write(struct fproc *rfp, int rw_flag, int fd, struct filp *f,
 		panic("VFS: read_write tries to access char dev NO_DEV");
 
 	dev = vp->v_sdev;
-	op = (rw_flag == READING ? CDEV_READ : CDEV_WRITE);
 
 	r = cdev_io(op, dev, for_e, buf, position, size, f->filp_flags);
 	if (r >= 0) {
@@ -252,7 +250,7 @@ int read_write(struct fproc *rfp, int rw_flag, int fd, struct filp *f,
 
   if (r == EPIPE && rw_flag == WRITING) {
 	/* Process is writing, but there is no reader. Tell the kernel to
-	 * generate a SIGPIPE signal.
+	 * generate s SIGPIPE signal.
 	 */
 	if (!(f->filp_flags & O_NOSIGPIPE)) {
 		sys_kill(rfp->fp_endpoint, SIGPIPE);
@@ -271,22 +269,16 @@ int read_write(struct fproc *rfp, int rw_flag, int fd, struct filp *f,
 int do_getdents(void)
 {
 /* Perform the getdents(fd, buf, size) system call. */
-  int fd, r = OK;
+  int r = OK;
   off_t new_pos;
-  vir_bytes buf;
-  size_t size;
   register struct filp *rfilp;
 
-  /* This field must always be set to zero for getdents(). */
-  if (job_m_in.m_lc_vfs_readwrite.cum_io != 0)
-	return(EINVAL);
-
-  fd = job_m_in.m_lc_vfs_readwrite.fd;
-  buf = job_m_in.m_lc_vfs_readwrite.buf;
-  size = job_m_in.m_lc_vfs_readwrite.len;
+  scratch(fp).file.fd_nr = job_m_in.m_lc_vfs_readwrite.fd;
+  scratch(fp).io.io_buffer = job_m_in.m_lc_vfs_readwrite.buf;
+  scratch(fp).io.io_nbytes = job_m_in.m_lc_vfs_readwrite.len;
 
   /* Is the file descriptor valid? */
-  if ( (rfilp = get_filp(fd, VNODE_READ)) == NULL)
+  if ( (rfilp = get_filp(scratch(fp).file.fd_nr, VNODE_READ)) == NULL)
 	return(err_code);
 
   if (!(rfilp->filp_mode & R_BIT))
@@ -296,7 +288,8 @@ int do_getdents(void)
 
   if (r == OK) {
 	r = req_getdents(rfilp->filp_vno->v_fs_e, rfilp->filp_vno->v_inode_nr,
-	    rfilp->filp_pos, buf, size, &new_pos, 0);
+			 rfilp->filp_pos, scratch(fp).io.io_buffer,
+			 scratch(fp).io.io_nbytes, &new_pos, 0);
 
 	if (r > 0) rfilp->filp_pos = new_pos;
   }
@@ -309,12 +302,15 @@ int do_getdents(void)
 /*===========================================================================*
  *				rw_pipe					     *
  *===========================================================================*/
-int rw_pipe(int rw_flag, endpoint_t usr_e, struct filp *f, int callnr, int fd,
-	vir_bytes buf, size_t nbytes, size_t cum_io)
+int rw_pipe(rw_flag, usr_e, f, buf, req_size)
+int rw_flag;			/* READING or WRITING */
+endpoint_t usr_e;
+struct filp *f;
+vir_bytes buf;
+size_t req_size;
 {
-  int r, oflags, partial_pipe = FALSE;
-  size_t size;
-  size_t cum_io_incr;
+  int r, oflags, partial_pipe = 0;
+  size_t size, cum_io, cum_io_incr;
   struct vnode *vp;
   off_t  position, new_pos;
 
@@ -328,20 +324,17 @@ int rw_pipe(int rw_flag, endpoint_t usr_e, struct filp *f, int callnr, int fd,
 
   assert(rw_flag == READING || rw_flag == WRITING);
 
-  r = pipe_check(f, rw_flag, oflags, nbytes, 0);
-  if (r <= 0) {
-	if (r == SUSPEND)
-		pipe_suspend(callnr, fd, buf, nbytes, cum_io);
+  /* fp->fp_cum_io_partial is only nonzero when doing partial writes */
+  cum_io = fp->fp_cum_io_partial;
 
-	/* If pipe_check returns an error instead of suspending the call, we
-	 * return that error, even if we are resuming a partially completed
-	 * operation (ie, a large blocking write), to match NetBSD's behavior.
-	 */
+  r = pipe_check(f, rw_flag, oflags, req_size, 0);
+  if (r <= 0) {
+	if (r == SUSPEND) pipe_suspend(f, buf, req_size);
 	return(r);
   }
 
   size = r;
-  if (size < nbytes) partial_pipe = TRUE;
+  if (size < req_size) partial_pipe = 1;
 
   /* Truncate read request at size. */
   if (rw_flag == READING && size > vp->v_size) {
@@ -355,28 +348,29 @@ int rw_pipe(int rw_flag, endpoint_t usr_e, struct filp *f, int callnr, int fd,
 		    buf, size, &new_pos, &cum_io_incr);
 
   if (r != OK) {
-	assert(r != SUSPEND);
 	return(r);
   }
 
   cum_io += cum_io_incr;
   buf += cum_io_incr;
-  nbytes -= cum_io_incr;
+  req_size -= cum_io_incr;
 
-  if (rw_flag == READING)
-	vp->v_size -= cum_io_incr;
-  else
-	vp->v_size += cum_io_incr;
+  vp->v_size = new_pos;
 
   if (partial_pipe) {
 	/* partial write on pipe with */
 	/* O_NONBLOCK, return write count */
 	if (!(oflags & O_NONBLOCK)) {
-		/* partial write on pipe with nbytes > PIPE_BUF, non-atomic */
-		pipe_suspend(callnr, fd, buf, nbytes, cum_io);
+		/* partial write on pipe with req_size > PIPE_SIZE,
+		 * non-atomic
+		 */
+		fp->fp_cum_io_partial = cum_io;
+		pipe_suspend(f, buf, req_size);
 		return(SUSPEND);
 	}
   }
+
+  fp->fp_cum_io_partial = 0;
 
   return(cum_io);
 }

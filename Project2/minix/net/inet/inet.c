@@ -8,11 +8,11 @@ Copyright 1995 Philip Homburg
 
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/svrctl.h>
 #include <minix/ds.h>
 #include <minix/endpoint.h>
 #include <minix/chardriver.h>
 #include <minix/rs.h>
-#include <minix/rmib.h>
 #include <sys/types.h>
 #include <pwd.h>
 
@@ -121,10 +121,6 @@ int main(int argc, char *argv[])
 					mess.m_source);
 			}
 		}
-		else if (mess.m_source == MIB_PROC_NR)
-		{
-			rmib_process(&mess, ipc_status);
-		}
 		else if (mess.m_type == DL_CONF_REPLY ||
 			mess.m_type == DL_TASK_REPLY ||
 			mess.m_type == DL_STAT_REPLY)
@@ -150,6 +146,8 @@ static void sef_local_startup()
   sef_setcb_init_fresh(sef_cb_init_fresh);
   sef_setcb_init_restart(sef_cb_init_fresh);
 
+  /* No live update support for now. */
+
   /* Let SEF perform startup. */
   sef_startup();
 }
@@ -164,6 +162,7 @@ static int sef_cb_init_fresh(int type, sef_init_info_t *info)
 	int timerand, fd;
 	u8_t randbits[32];
 	struct timeval tv;
+	struct passwd *pw;
 
 #if DEBUG
 	printf("Starting inet...\n");
@@ -238,17 +237,18 @@ static int sef_cb_init_fresh(int type, sef_init_info_t *info)
 		ip_panic(("inet: can't subscribe to driver events"));
 	}
 
-	/* Drop privileges. */
-	if (setuid(SERVICE_UID) != 0)
-		printf("inet: warning, unable to drop privileges\n");
+	/* Drop root privileges */
+	if ((pw = getpwnam(SERVICE_LOGIN)) == NULL) {
+		printf("inet: unable to retrieve uid of SERVICE_LOGIN, "
+			"still running as root");
+	} else if (setuid(pw->pw_uid) != 0) {
+		ip_panic(("inet: unable to drop privileges"));
+	}
 
 	/* Announce we are up. INET announces its presence to VFS just like
 	 * any other character driver.
 	 */
 	chardriver_announce();
-
-	/* Register net.route RMIB subtree with the MIB service. */
-	rtinfo_init();
 
 	return(OK);
 }

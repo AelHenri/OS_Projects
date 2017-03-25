@@ -194,22 +194,12 @@ static int mthread_increase_thread_pool(void)
   	new_tcb[i] = malloc(sizeof(mthread_tcb_t));
   	if (new_tcb[i] == NULL) {
   		mthread_debug("Can't allocate space for tcb");
-		/* Undo the allocations made so far. */
-		while (i-- > old_no_threads)
-			free(new_tcb[i]);
-		if (old_no_threads > 0) {
-			new_tcb = realloc(threads, old_no_threads *
-			    sizeof(mthread_tcb_t *));
-			if (new_tcb == NULL)
-				mthread_panic("Unable to shrink tcb array");
-		} else
-			free(new_tcb);
   		return(-1);
   	}
   	memset(new_tcb[i], '\0', sizeof(mthread_tcb_t)); /* Clear entry */
   }
 
-  /* We can breathe again, let's tell the others about the good news */
+  /* We can breath again, let's tell the others about the good news */
   threads = new_tcb; 
   no_threads = new_no_threads;
 
@@ -432,10 +422,8 @@ void *arg;
 # error "Unsupported platform"
 #endif
 	stacksize = guarded_stacksize;
-	/* Mere unmapping could allow a later allocation to fill the gap. */
-        if (mmap(guard_start, MTHREAD_GUARDSIZE, PROT_NONE,
-		MAP_ANON|MAP_PRIVATE|MAP_FIXED, -1, 0) != guard_start)
-		mthread_panic("unable to overmap stack space for guard");
+	if (munmap(guard_start, MTHREAD_GUARDSIZE) != 0)
+		mthread_panic("unable to unmap stack space for guard");
 	tcb->m_context.uc_stack.ss_sp = guard_end;
   } else
   	tcb->m_context.uc_stack.ss_sp = stackaddr;
@@ -456,9 +444,6 @@ mthread_thread_t thread;
 /* Reset the thread to its default values. Free the allocated stack space. */
 
   mthread_tcb_t *rt;
-  size_t stacksize;
-  char *stackaddr;
-
   if (!isokthreadid(thread)) mthread_panic("Invalid thread id"); 
 
   rt = mthread_find_tcb(thread);
@@ -471,15 +456,8 @@ mthread_thread_t thread;
   rt->m_cond = NULL;
   if (rt->m_attr.ma_stackaddr == NULL) { /* We allocated stack space */
 	if (rt->m_context.uc_stack.ss_sp) {
-		stacksize = rt->m_context.uc_stack.ss_size;
-		stackaddr = rt->m_context.uc_stack.ss_sp;
-#if defined(__i386__) || defined(__arm__)
-		stacksize += MTHREAD_GUARDSIZE;
-		stackaddr -= MTHREAD_GUARDSIZE;
-#else
-# error "Unsupported platform"
-#endif
-		if (munmap(stackaddr, stacksize) != 0) {
+		if (munmap(rt->m_context.uc_stack.ss_sp,
+				 rt->m_context.uc_stack.ss_size) != 0) {
 			mthread_panic("unable to unmap memory");
 		}
 	}

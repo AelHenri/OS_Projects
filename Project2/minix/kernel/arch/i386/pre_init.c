@@ -157,12 +157,12 @@ void get_parameters(u32_t ebx, kinfo_t *cbi)
         mb_set_param(cbi->param_buf, ARCHVARNAME, (char *)get_board_arch_name(BOARD_ID_INTEL), cbi);
 	mb_set_param(cbi->param_buf, BOARDVARNAME,(char *)get_board_name(BOARD_ID_INTEL) , cbi);
 
-	/* move user stack/data down to leave a gap to catch kernel
+	/* round user stack down to leave a gap to catch kernel
 	 * stack overflow; and to distinguish kernel and user addresses
 	 * at a glance (0xf.. vs 0xe..) 
 	 */
-	cbi->user_sp = USR_STACKTOP;
-	cbi->user_end = USR_DATATOP;
+	cbi->user_sp &= 0xF0000000;
+	cbi->user_end = cbi->user_sp;
 
 	/* kernel bytes without bootstrap code/data that is currently
 	 * still needed but will be freed after bootstrapping.
@@ -246,6 +246,6 @@ kinfo_t *pre_init(u32_t magic, u32_t ebx)
 }
 
 void send_diag_sig(void) { }
-void minix_shutdown(int how) { arch_shutdown(how); }
+void minix_shutdown(minix_timer_t *t) { arch_shutdown(0); }
 void busy_delay_ms(int x) { }
 int raise(int sig) { panic("raise(%d)\n", sig); }

@@ -1,4 +1,4 @@
 PROG=	rarpd
-MAN=	rarpd.8
+MAN=
 
 .include <bsd.prog.mk>

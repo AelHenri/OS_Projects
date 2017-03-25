@@ -29,32 +29,23 @@ static int safecopy(struct proc *, endpoint_t, endpoint_t,
 #define HASGRANTTABLE(gr) \
 	(priv(gr) && priv(gr)->s_grant_table)
 
-struct cp_sfinfo {		/* information for handling soft faults */
-	int try;		/* if nonzero, try copy only, stop on fault */
-	endpoint_t endpt;	/* endpoint owning grant with CPF_TRY flag */
-	vir_bytes addr;		/* address to write mark upon soft fault */
-	cp_grant_id_t value;	/* grant ID to use as mark value to write */
-};
-
 /*===========================================================================*
  *				verify_grant				     *
  *===========================================================================*/
-int verify_grant(
-  endpoint_t granter,		/* copyee */
-  endpoint_t grantee,		/* copyer */
-  cp_grant_id_t grant,		/* grant id */
-  vir_bytes bytes,		/* copy size */
-  int access,			/* direction (read/write) */
-  vir_bytes offset_in,		/* copy offset within grant */
-  vir_bytes *offset_result,	/* copy offset within virtual address space */
-  endpoint_t *e_granter,	/* new granter (magic grants) */
-  struct cp_sfinfo *sfinfo	/* storage for soft fault information */
-)
+int verify_grant(granter, grantee, grant, bytes, access,
+	offset_in, offset_result, e_granter, flags)
+endpoint_t granter, grantee;	/* copyee, copyer */
+cp_grant_id_t grant;		/* grant id */
+vir_bytes bytes;		/* copy size */
+int access;			/* direction (read/write) */
+vir_bytes offset_in;		/* copy offset within grant */
+vir_bytes *offset_result;	/* copy offset within virtual address space */
+endpoint_t *e_granter;		/* new granter (magic grants) */
+u32_t *flags;			/* CPF_* */
 {
-	cp_grant_t g;
-	int proc_nr;
-	const struct proc *granter_proc;
-	int grant_idx, grant_seq;
+	static cp_grant_t g;
+	static int proc_nr;
+	static const struct proc *granter_proc;
 	int depth = 0;
 
 	do {
@@ -73,23 +64,6 @@ int verify_grant(
 		}
 		granter_proc = proc_addr(proc_nr);
 
-		/* If the granter has a temporary grant table, always allow
-		 * requests with unspecified access and return ENOTREADY if
-		 * no grant table is present or if the grantee's endpoint is not
-		 * the endpoint the table belongs to. When ENOTREADY is returned
-		 * the same verify_grant() request will be replayed again in a
-		 * while until the grant table is final. This is necessary to
-		 * avoid races at live update time.
-		 */
-		if(priv(granter_proc)->s_grant_endpoint != granter_proc->p_endpoint) {
-			if(!access) {
-				return OK;
-			}
-			else if(!HASGRANTTABLE(granter_proc) || grantee != priv(granter_proc)->s_grant_endpoint) {
-				return ENOTREADY;
-			}
-		}
-
 		/* If there is no priv. structure, or no grant table in the
 		 * priv. structure, or the grant table in the priv. structure
 		 * is too small for the grant, return EPERM.
@@ -101,43 +75,37 @@ int verify_grant(
 			return(EPERM);
 		}
 
-		grant_idx = GRANT_IDX(grant);
-		grant_seq = GRANT_SEQ(grant);
-
-		if(priv(granter_proc)->s_grant_entries <= grant_idx) {
+		if(priv(granter_proc)->s_grant_entries <= grant) {
 				printf(
 				"verify_grant: grant verify failed in ep %d "
-				"proc %d: grant 0x%x (#%d) out of range "
+				"proc %d: grant %d out of range "
 				"for table size %d\n",
-					granter, proc_nr, grant, grant_idx,
+					granter, proc_nr, grant,
 					priv(granter_proc)->s_grant_entries);
 			return(EPERM);
 		}
 
-		/* Copy the grant entry corresponding to this ID's index to see
-		 * what it looks like. If it fails, hide the fact that granter
-		 * has (presumably) set an invalid grant table entry by
-		 * returning EPERM, just like with an invalid grant id.
+		/* Copy the grant entry corresponding to this id to see what it
+		 * looks like. If it fails, hide the fact that granter has
+		 * (presumably) set an invalid grant table entry by returning
+		 * EPERM, just like with an invalid grant id.
 		 */
-		if(data_copy(granter, priv(granter_proc)->s_grant_table +
-			sizeof(g) * grant_idx,
+		if(data_copy(granter,
+			priv(granter_proc)->s_grant_table + sizeof(g)*grant,
 			KERNEL, (vir_bytes) &g, sizeof(g)) != OK) {
 			printf(
 			"verify_grant: grant verify: data_copy failed\n");
 			return EPERM;
 		}
 
-		/* Check validity: flags and sequence number. */
+		if(flags) *flags = g.cp_flags;
+
+		/* Check validity. */
 		if((g.cp_flags & (CPF_USED | CPF_VALID)) !=
 			(CPF_USED | CPF_VALID)) {
-			printf("verify_grant: grant failed: invalid flags "
-			    "(0x%x, 0x%lx)\n", grant, g.cp_flags);
-			return EPERM;
-		}
-
-		if (g.cp_seq != grant_seq) {
-			printf("verify_grant: grant failed: invalid sequence "
-			    "(0x%x, %d vs %d)\n", grant, grant_seq, g.cp_seq);
+			printf(
+			"verify_grant: grant failed: invalid (%d flags 0x%lx)\n",
+				grant, g.cp_flags);
 			return EPERM;
 		}
 
@@ -216,13 +184,13 @@ int verify_grant(
 		*offset_result = g.cp_u.cp_direct.cp_start + offset_in;
 		*e_granter = granter;
 	} else if(g.cp_flags & CPF_MAGIC) {
-		/* Currently, it is hardcoded that only VFS and MIB may do
-		 * magic grants.  TODO: this should be a system.conf flag.
+		/* Currently, it is hardcoded that only FS may do
+		 * magic grants.
 		 */
-		if(granter != VFS_PROC_NR && granter != MIB_PROC_NR) {
+		if(granter != VFS_PROC_NR) {
 			printf(
 		"verify_grant: magic grant verify failed: granter (%d) "
-		"not allowed\n", granter);
+		"is not FS (%d)\n", granter, VFS_PROC_NR);
 			return EPERM;
 		}
 
@@ -255,39 +223,29 @@ int verify_grant(
 		return EPERM;
 	}
 
-	/* If requested, store information regarding soft faults. */
-	if (sfinfo != NULL && (sfinfo->try = !!(g.cp_flags & CPF_TRY))) {
-		sfinfo->endpt = granter;
-		sfinfo->addr = priv(granter_proc)->s_grant_table +
-		    sizeof(g) * grant_idx + offsetof(cp_grant_t, cp_faulted);
-		sfinfo->value = grant;
-	}
-
 	return OK;
 }
 
 /*===========================================================================*
  *				safecopy				     *
  *===========================================================================*/
-static int safecopy(
-  struct proc * caller,
-  endpoint_t granter,
-  endpoint_t grantee,
-  cp_grant_id_t grantid,
-  size_t bytes,
-  vir_bytes g_offset,
-  vir_bytes addr,
-  int access			/* CPF_READ for a copy from granter to grantee, CPF_WRITE
+static int safecopy(caller, granter, grantee, grantid, bytes,
+	g_offset, addr, access)
+struct proc * caller;
+endpoint_t granter, grantee;
+cp_grant_id_t grantid;
+size_t bytes;
+vir_bytes g_offset, addr;
+int access;			/* CPF_READ for a copy from granter to grantee, CPF_WRITE
 				 * for a copy from grantee to granter.
 				 */
-)
 {
 	static struct vir_addr v_src, v_dst;
 	static vir_bytes v_offset;
 	endpoint_t new_granter, *src, *dst;
 	struct proc *granter_p;
 	int r;
-	struct cp_sfinfo sfinfo;
+	u32_t flags;
 #if PERF_USE_COW_SAFECOPY
 	vir_bytes size;
 #endif
@@ -295,6 +253,14 @@ static int safecopy(
 	if(granter == NONE || grantee == NONE) {
 		printf("safecopy: nonsense processes\n");
 		return EFAULT;
+	}
+
+	/* See if there is a reasonable grant table. */
+	if(!(granter_p = endpoint_lookup(granter))) return EINVAL;
+	if(!HASGRANTTABLE(granter_p)) {
+		printf(
+		"safecopy failed: granter %d has no grant table\n", granter);
+		return(EPERM);
 	}
 
 	/* Decide who is src and who is dst. */
@@ -308,8 +274,7 @@ static int safecopy(
 
 	/* Verify permission exists. */
 	if((r=verify_grant(granter, grantee, grantid, bytes, access,
-	    g_offset, &v_offset, &new_granter, &sfinfo)) != OK) {
-		if(r == ENOTREADY) return r;
+	    g_offset, &v_offset, &new_granter, &flags)) != OK) {
 			printf(
 		"grant %d verify to copy %d->%d by %d failed: err %d\n",
 				grantid, *src, *dst, grantee, r);
@@ -338,39 +303,11 @@ static int safecopy(
 	}
 
 	/* Do the regular copy. */
-	if (sfinfo.try) {
-		/*
-		 * Try copying without transparently faulting in pages.
-		 * TODO: while CPF_TRY is meant to protect against deadlocks on
-		 * memory-mapped files in file systems, it seems that this case
-		 * triggers faults a whole lot more often, resulting in extra
-		 * overhead due to retried file system operations.  It might be
-		 * a good idea to go through VM even in this case, and have VM
-		 * fail (only) if the affected page belongs to a file mapping.
-		 */
+	if(flags & CPF_TRY) {
+		int r;
+		/* Try copy without transparently faulting in pages. */
 		r = virtual_copy(&v_src, &v_dst, bytes);
-		if (r == EFAULT_SRC || r == EFAULT_DST) {
-			/*
-			 * Mark the magic grant as having experienced a soft
-			 * fault during its lifetime.  The exact value does not
-			 * matter, but we use the grant ID (including its
-			 * sequence number) as a form of protection in the
-			 * light of CPU concurrency.
-			 */
-			r = data_copy(KERNEL, (vir_bytes)&sfinfo.value,
-			    sfinfo.endpt, sfinfo.addr, sizeof(sfinfo.value));
-			/*
-			 * Failure means the creator of the magic grant messed
-			 * up, which can only be unintentional, so report..
-			 */
-			if (r != OK)
-				printf("Kernel: writing soft fault marker %d "
-				    "into %d at 0x%lx failed (%d)\n",
-				    sfinfo.value, sfinfo.endpt, sfinfo.addr,
-				    r);
-
-			return EFAULT;
-		}
+		if(r == EFAULT_SRC || r == EFAULT_DST) return EFAULT;
 		return r;
 	}
 	return virtual_copy_vmcheck(caller, &v_src, &v_dst, bytes);

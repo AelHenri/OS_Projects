@@ -1,4 +1,7 @@
 PROG=	mkproto
-MAN=	mkproto.1
+MAN=
+
+NOGCCERROR?=    yes
+NOCLANGERROR?=  yes
 
 .include <bsd.prog.mk>

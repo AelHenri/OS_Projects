@@ -9,7 +9,7 @@
  *				hgfs_open				     *
  *===========================================================================*/
 int hgfs_open(
-	const char *path,	/* path name to open */
+	char *path,        	/* path name to open */
 	int flags,         	/* open flags to use */
 	int mode,          	/* mode to create (user bits only) */
 	sffs_file_t *handle	/* place to store resulting handle */
@@ -60,8 +60,7 @@ ssize_t hgfs_read(
 {
 /* Read from an open file. Upon success, return the number of bytes read.
  */
-  size_t len, max;
-  int r;
+  int r, len, max;
 
   RPC_REQUEST(HGFS_REQ_READ);
   RPC_NEXT32 = (u32_t)handle;

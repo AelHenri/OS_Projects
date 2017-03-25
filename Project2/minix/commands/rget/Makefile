@@ -1,4 +1,5 @@
 PROG=	rget
+MAN=
 
 LINKS+=      ${BINDIR}/rget ${BINDIR}/rput
 

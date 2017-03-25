@@ -1,3 +1,5 @@
+NOGCCERROR=yes
+NOCLANGERROR=yes
 #
 # Makefile for libclkconf
 

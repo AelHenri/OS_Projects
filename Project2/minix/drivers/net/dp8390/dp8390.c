@@ -16,7 +16,14 @@
 #include <minix/drivers.h>
 #include <minix/netdriver.h>
 
+#include <stdlib.h>
+#include <minix/com.h>
+#include <minix/endpoint.h>
+#include <minix/ds.h>
 #include <net/hton.h>
+#include <net/gen/ether.h>
+#include <net/gen/eth_io.h>
+#include <machine/vm.h>
 #include <sys/mman.h>
 #include "assert.h"
 
@@ -63,100 +70,203 @@ static dp_conf_t dp_conf[DP_CONF_NR]=	/* Card addresses */
  */
 #define CR_EXTRA	CR_STA
 
-static int do_init(unsigned int instance, ether_addr_t *addr);
+#if ENABLE_PCI
 static void pci_conf(void);
-static int do_send(struct netdriver_data *data, size_t size);
-static ssize_t do_recv(struct netdriver_data *data, size_t max);
-static void do_mode(unsigned int mode);
-static void do_stat(eth_stat_t *stat);
-static void do_stop(void);
+#endif
+static void do_vwrite_s(message *mp, int from_int);
+static void do_vread_s(message *mp);
+static void do_init(message *mp);
+static void do_int(dpeth_t *dep);
+static void do_getstat_s(message *mp);
+static void dp_stop(dpeth_t *dep);
 static void dp_init(dpeth_t *dep);
 static void dp_confaddr(dpeth_t *dep);
+static void dp_reinit(dpeth_t *dep);
 static void dp_reset(dpeth_t *dep);
-static void do_intr(unsigned int mask);
+static void dp_check_ints(dpeth_t *dep);
+static void dp_recv(dpeth_t *dep);
+static void dp_send(dpeth_t *dep);
 static void dp_getblock(dpeth_t *dep, int page, size_t offset, size_t
 	size, void *dst);
 static void dp_pio8_getblock(dpeth_t *dep, int page, size_t offset,
 	size_t size, void *dst);
 static void dp_pio16_getblock(dpeth_t *dep, int page, size_t offset,
 	size_t size, void *dst);
-static void dp_pkt2user_s(dpeth_t *dep, struct netdriver_data *data, int page,
-	size_t length);
-static void dp_user2nic_s(dpeth_t *dep, struct netdriver_data *data,
-	int nic_addr, size_t offset, size_t count);
-static void dp_pio8_user2nic_s(dpeth_t *dep, struct netdriver_data *data,
-	int nic_addr, size_t offset, size_t count);
-static void dp_pio16_user2nic_s(dpeth_t *dep, struct netdriver_data *data,
-	int nic_addr, size_t offset, size_t count);
-static void dp_nic2user_s(dpeth_t *dep, struct netdriver_data *data,
-	int nic_addr, size_t offset, size_t count);
-static void dp_pio8_nic2user_s(dpeth_t *dep, struct netdriver_data *data,
-	int nic_addr, size_t offset, size_t count);
-static void dp_pio16_nic2user_s(dpeth_t *dep, struct netdriver_data *data,
-	int nic_addr, size_t offset, size_t count);
+static int dp_pkt2user_s(dpeth_t *dep, int page, vir_bytes length);
+static void dp_user2nic_s(dpeth_t *dep, iovec_dat_s_t *iovp, vir_bytes
+	offset, int nic_addr, vir_bytes count);
+static void dp_pio8_user2nic_s(dpeth_t *dep, iovec_dat_s_t *iovp,
+	vir_bytes offset, int nic_addr, vir_bytes count);
+static void dp_pio16_user2nic_s(dpeth_t *dep, iovec_dat_s_t *iovp,
+	vir_bytes offset, int nic_addr, vir_bytes count);
+static void dp_nic2user_s(dpeth_t *dep, int nic_addr, iovec_dat_s_t
+	*iovp, vir_bytes offset, vir_bytes count);
+static void dp_pio8_nic2user_s(dpeth_t *dep, int nic_addr, iovec_dat_s_t
+	*iovp, vir_bytes offset, vir_bytes count);
+static void dp_pio16_nic2user_s(dpeth_t *dep, int nic_addr,
+	iovec_dat_s_t *iovp, vir_bytes offset, vir_bytes count);
+static void dp_next_iovec_s(iovec_dat_s_t *iovp);
 static void conf_hw(dpeth_t *dep);
 static void update_conf(dpeth_t *dep, dp_conf_t *dcp);
 static void map_hw_buffer(dpeth_t *dep);
+static int calc_iovec_size_s(iovec_dat_s_t *iovp);
+static void reply(dpeth_t *dep);
+static void mess_reply(message *req, message *reply);
+static void get_userdata_s(int user_proc, cp_grant_id_t grant, vir_bytes
+	offset, vir_bytes count, void *loc_addr);
+static void put_userdata_s(int user_proc, cp_grant_id_t grant, size_t
+	count, void *loc_addr);
 static void insb(port_t port, void *buf, size_t size);
 static void insw(port_t port, void *buf, size_t size);
+static void do_vir_insb(port_t port, int proc, vir_bytes buf, size_t
+	size);
+static void do_vir_insw(port_t port, int proc, vir_bytes buf, size_t
+	size);
 
-static const struct netdriver dp_table = {
-	.ndr_init	= do_init,
-	.ndr_stop	= do_stop,
-	.ndr_mode	= do_mode,
-	.ndr_recv	= do_recv,
-	.ndr_send	= do_send,
-	.ndr_stat	= do_stat,
-	.ndr_intr	= do_intr
-};
+/* SEF functions and variables. */
+static void sef_local_startup(void);
+static int sef_cb_init_fresh(int type, sef_init_info_t *info);
+static void sef_cb_signal_handler(int signo);
 
-/*===========================================================================*
- *				main					     *
- *===========================================================================*/
-int main(int argc, char *argv[])
+static void handle_hw_intr(void)
 {
-	env_setargs(argc, argv);
+	int r, irq;
+	dpeth_t *dep;
 
-	netdriver_task(&dp_table);
+	dep = &de_state;
 
-	return 0;
+	if (dep->de_mode != DEM_ENABLED)
+		return;
+	assert(dep->de_flags & DEF_ENABLED);
+	irq= dep->de_irq;
+	assert(irq >= 0 && irq < NR_IRQ_VECTORS);
+	if (dep->de_int_pending || 1)
+	{
+		dep->de_int_pending= 0;
+		dp_check_ints(dep);
+		do_int(dep);
+		r= sys_irqenable(&dep->de_hook);
+		if (r != OK) {
+			panic("unable enable interrupts: %d", r);
+		}
+	}
 }
 
 /*===========================================================================*
- *				do_init					     *
+ *				dpeth_task				     *
  *===========================================================================*/
-static int do_init(unsigned int instance, ether_addr_t *addr)
+int main(int argc, char *argv[])
+{
+	message m;
+	int ipc_status;
+	int r;
+
+	/* SEF local startup. */
+	env_setargs(argc, argv);
+	sef_local_startup();
+
+	while (TRUE)
+	{
+		if ((r= netdriver_receive(ANY, &m, &ipc_status)) != OK)
+			panic("dp8390: netdriver_receive failed: %d", r);
+
+		if (is_ipc_notify(ipc_status)) {
+			switch (_ENDPOINT_P(m.m_source)) {
+				case HARDWARE:
+					handle_hw_intr();
+					break;
+				case CLOCK:
+					printf("dp8390: notify from CLOCK\n");
+					break;
+				default:
+					panic("dp8390: illegal notify from: %d",
+						m.m_source);
+			}
+
+			/* done, get a new message */
+			continue;
+		}
+
+		switch (m.m_type)
+		{
+		case DL_WRITEV_S: do_vwrite_s(&m, FALSE);	break;
+		case DL_READV_S: do_vread_s(&m);		break;
+		case DL_CONF:	do_init(&m);			break;
+		case DL_GETSTAT_S: do_getstat_s(&m);		break;
+		default:
+			panic("dp8390: illegal message: %d", m.m_type);
+		}
+	}
+}
+
+/*===========================================================================*
+ *			       sef_local_startup			     *
+ *===========================================================================*/
+static void sef_local_startup()
+{
+  /* Register init callbacks. */
+  sef_setcb_init_fresh(sef_cb_init_fresh);
+  sef_setcb_init_lu(sef_cb_init_fresh);
+  sef_setcb_init_restart(sef_cb_init_fresh);
+
+  /* Register live update callbacks. */
+  sef_setcb_lu_prepare(sef_cb_lu_prepare_always_ready);
+  sef_setcb_lu_state_isvalid(sef_cb_lu_state_isvalid_workfree);
+
+  /* Register signal callbacks. */
+  sef_setcb_signal_handler(sef_cb_signal_handler);
+
+  /* Let SEF perform startup. */
+  sef_startup();
+}
+
+/*===========================================================================*
+ *		            sef_cb_init_fresh                                *
+ *===========================================================================*/
+static int sef_cb_init_fresh(int type, sef_init_info_t *UNUSED(info))
 {
 /* Initialize the dp8390 driver. */
 	dpeth_t *dep;
+	long v;
 
 	system_hz = sys_hz();
 
-	de_instance = instance;
+	if (env_argc < 1) {
+		panic("A head which at this time has no name");
+	}
+
+	v = 0;
+	(void) env_parse("instance", "d", 0, &v, 0, 255);
+	de_instance = (int) v;
 
 	dep = &de_state;
-	memset(dep, 0, sizeof(*dep));
 
 	strlcpy(dep->de_name, "dp8390#0", sizeof(dep->de_name));
 	dep->de_name[7] += de_instance;
 
-	pci_conf(); /* Configure PCI devices. */
+	/* Announce we are up! */
+	netdriver_announce();
 
-	/* This is the default, try to (re)locate the device. */
-	conf_hw(dep);
+	return(OK);
+}
 
-	dp_init(dep);
+/*===========================================================================*
+ *		           sef_cb_signal_handler                             *
+ *===========================================================================*/
+static void sef_cb_signal_handler(int signo)
+{
+	/* Only check for termination signal, ignore anything else. */
+	if (signo != SIGTERM) return;
 
-	memcpy(addr, dep->de_address.ea_addr, sizeof(*addr));
-
-	return OK;
+	if (de_state.de_mode == DEM_ENABLED)
+		dp_stop(&de_state);
 }
 
 #if 0
 /*===========================================================================*
  *				dp8390_dump				     *
  *===========================================================================*/
-void dp8390_dump(void)
+void dp8390_dump()
 {
 	dpeth_t *dep;
 	int isr;
@@ -164,6 +274,16 @@ void dp8390_dump(void)
 	dep = &de_state;
 
 	printf("\n");
+#if XXX
+	if (dep->de_mode == DEM_DISABLED)
+		printf("dp8390 instance %d is disabled\n", de_instance);
+	else if (dep->de_mode == DEM_SINK)
+		printf("dp8390 instance %d is in sink mode\n", de_instance);
+#endif
+
+	if (dep->de_mode != DEM_ENABLED)
+		return;
+
 	printf("dp8390 statistics of instance %d:\n", de_instance);
 
 	printf("recvErr    :%8ld\t", dep->de_stat.ets_recvErr);
@@ -194,14 +314,20 @@ void dp8390_dump(void)
 }
 #endif
 
+#if ENABLE_PCI
 /*===========================================================================*
  *				pci_conf				     *
  *===========================================================================*/
-static void pci_conf(void)
+static void pci_conf()
 {
 	char envvar[16];
 	struct dpeth *dep;
 	int i, pci_instance;
+	static int first_time= 1;
+
+	if (!first_time)
+		return;
+	first_time= 0;
 
 	dep= &de_state;
 
@@ -221,26 +347,69 @@ static void pci_conf(void)
 	}
 
 	if (!rtl_probe(dep, pci_instance))
-		panic("no matching PCI device found");
+		dep->de_pci= -1;
 }
+#endif /* ENABLE_PCI */
 
 /*===========================================================================*
- *				do_send					     *
+ *				do_vwrite_s				     *
  *===========================================================================*/
-static int do_send(struct netdriver_data *data, size_t size)
+static void do_vwrite_s(mp, from_int)
+message *mp;
+int from_int;
 {
+	int count, size;
 	int sendq_head;
 	dpeth_t *dep;
 
 	dep= &de_state;
 
+	count = mp->m_net_netdrv_dl_writev_s.count;
+	dep->de_client= mp->m_source;
+
+	if (dep->de_mode == DEM_SINK)
+	{
+		assert(!from_int);
+		dep->de_flags |= DEF_PACK_SEND;
+		reply(dep);
+		return;
+	}
+	assert(dep->de_mode == DEM_ENABLED);
+	assert(dep->de_flags & DEF_ENABLED);
+	if (dep->de_flags & DEF_SEND_AVAIL)
+		panic("dp8390: send already in progress");
+
 	sendq_head= dep->de_sendq_head;
 	if (dep->de_sendq[sendq_head].sq_filled)
-		return SUSPEND;
+	{
+		if (from_int)
+			panic("dp8390: should not be sending");
+		dep->de_sendmsg= *mp;
+		dep->de_flags |= DEF_SEND_AVAIL;
+		reply(dep);
+		return;
+	}
+	assert(!(dep->de_flags & DEF_PACK_SEND));
 
-	(dep->de_user2nicf_s)(dep, data,
-		dep->de_sendq[sendq_head].sq_sendpage * DP_PAGESIZE, 0, size);
+	get_userdata_s(mp->m_source, mp->m_net_netdrv_dl_writev_s.grant, 0,
+		(count > IOVEC_NR ? IOVEC_NR : count) *
+		sizeof(dep->de_write_iovec_s.iod_iovec[0]),
+		dep->de_write_iovec_s.iod_iovec);
+	dep->de_write_iovec_s.iod_iovec_s = count;
+	dep->de_write_iovec_s.iod_proc_nr = mp->m_source;
+	dep->de_write_iovec_s.iod_grant = mp->m_net_netdrv_dl_writev_s.grant;
+	dep->de_write_iovec_s.iod_iovec_offset = 0;
 
+	dep->de_tmp_iovec_s = dep->de_write_iovec_s;
+	size = calc_iovec_size_s(&dep->de_tmp_iovec_s);
+
+	if (size < ETH_MIN_PACK_SIZE || size > ETH_MAX_PACK_SIZE_TAGGED)
+	{
+		panic("dp8390: invalid packet size: %d", size);
+	}
+	(dep->de_user2nicf_s)(dep, &dep->de_write_iovec_s, 0,
+		dep->de_sendq[sendq_head].sq_sendpage * DP_PAGESIZE,
+		size);
 	dep->de_sendq[sendq_head].sq_filled= TRUE;
 	if (dep->de_sendq_tail == sendq_head)
 	{
@@ -257,65 +426,215 @@ static int do_send(struct netdriver_data *data, size_t size)
 	assert(sendq_head < SENDQ_NR);
 	dep->de_sendq_head= sendq_head;
 
-	return OK;
+	dep->de_flags |= DEF_PACK_SEND;
+
+	/* If the interrupt handler called, don't send a reply. The reply
+	 * will be sent after all interrupts are handled. 
+	 */
+	if (from_int)
+		return;
+	reply(dep);
+
+	assert(dep->de_mode == DEM_ENABLED);
+	assert(dep->de_flags & DEF_ENABLED);
 }
 
 /*===========================================================================*
- *				do_mode					     *
+ *				do_vread_s				     *
  *===========================================================================*/
-static void do_mode(unsigned int mode)
+static void do_vread_s(mp)
+message *mp;
 {
-	dpeth_t *dep;
-	int dp_rcr_reg;
-
-	dep = &de_state;
-
-	outb_reg0(dep, DP_CR, CR_PS_P0 | CR_EXTRA);
-
-	dp_rcr_reg = 0;
-	if (mode & NDEV_PROMISC)
-		dp_rcr_reg |= RCR_AB | RCR_PRO | RCR_AM;
-	if (mode & NDEV_BROAD)
-		dp_rcr_reg |= RCR_AB;
-	if (mode & NDEV_MULTI)
-		dp_rcr_reg |= RCR_AM;
-	outb_reg0(dep, DP_RCR, dp_rcr_reg);
-}
-
-/*===========================================================================*
- *				do_stat					     *
- *===========================================================================*/
-static void do_stat(eth_stat_t *stat)
-{
+	int count;
+	int size;
 	dpeth_t *dep;
 
 	dep= &de_state;
+
+	count = mp->m_net_netdrv_dl_readv_s.count;
+	dep->de_client= mp->m_source;
+	if (dep->de_mode == DEM_SINK)
+	{
+		reply(dep);
+		return;
+	}
+	assert(dep->de_mode == DEM_ENABLED);
+	assert(dep->de_flags & DEF_ENABLED);
+
+	if(dep->de_flags & DEF_READING)
+		panic("dp8390: read already in progress");
+
+	get_userdata_s(mp->m_source, mp->m_net_netdrv_dl_readv_s.grant, 0,
+		(count > IOVEC_NR ? IOVEC_NR : count) *
+		sizeof(dep->de_read_iovec_s.iod_iovec[0]),
+		dep->de_read_iovec_s.iod_iovec);
+	dep->de_read_iovec_s.iod_iovec_s = count;
+	dep->de_read_iovec_s.iod_proc_nr = mp->m_source;
+	dep->de_read_iovec_s.iod_grant = mp->m_net_netdrv_dl_readv_s.grant;
+	dep->de_read_iovec_s.iod_iovec_offset = 0;
+
+	dep->de_tmp_iovec_s = dep->de_read_iovec_s;
+	size= calc_iovec_size_s(&dep->de_tmp_iovec_s);
+
+	if (size < ETH_MAX_PACK_SIZE_TAGGED)
+		panic("dp8390: wrong packet size: %d", size);
+	dep->de_flags |= DEF_READING;
+
+	dp_recv(dep);
+
+	if ((dep->de_flags & (DEF_READING|DEF_STOPPED)) ==
+		(DEF_READING|DEF_STOPPED))
+	{
+		/* The chip is stopped, and all arrived packets are 
+		 * delivered.
+		 */
+		dp_reset(dep);
+	}
+	reply(dep);
+}
+
+/*===========================================================================*
+ *				do_init					     *
+ *===========================================================================*/
+static void do_init(message *mp)
+{
+	dpeth_t *dep;
+	message reply_mess;
+
+#if ENABLE_PCI
+	pci_conf(); /* Configure PCI devices. */
+#endif
+
+	dep= &de_state;
+
+	if (dep->de_mode == DEM_DISABLED)
+	{
+		/* This is the default, try to (re)locate the device. */
+		conf_hw(dep);
+		if (dep->de_mode == DEM_DISABLED)
+		{
+			/* Probe failed, or the device is configured off. */
+			reply_mess.m_type = DL_CONF_REPLY;
+			reply_mess.m_netdrv_net_dl_conf.stat = ENXIO;
+			mess_reply(mp, &reply_mess);
+			return;
+		}
+		if (dep->de_mode == DEM_ENABLED)
+			dp_init(dep);
+	}
+
+	if (dep->de_mode == DEM_SINK)
+	{
+		strncpy((char *) dep->de_address.ea_addr, "ZDP", 6);
+		dep->de_address.ea_addr[5] = de_instance;
+		dp_confaddr(dep);
+		reply_mess.m_type = DL_CONF_REPLY;
+		reply_mess.m_netdrv_net_dl_conf.stat = OK;
+		memcpy(reply_mess.m_netdrv_net_dl_conf.hw_addr,
+			dep->de_address.ea_addr,
+			sizeof(reply_mess.m_netdrv_net_dl_conf.hw_addr));
+		mess_reply(mp, &reply_mess);
+		return;
+	}
+	assert(dep->de_mode == DEM_ENABLED);
+	assert(dep->de_flags & DEF_ENABLED);
+
+	dep->de_flags &= ~(DEF_PROMISC | DEF_MULTI | DEF_BROAD);
+
+	if (mp->m_net_netdrv_dl_conf.mode & DL_PROMISC_REQ)
+		dep->de_flags |= DEF_PROMISC | DEF_MULTI | DEF_BROAD;
+	if (mp->m_net_netdrv_dl_conf.mode & DL_MULTI_REQ)
+		dep->de_flags |= DEF_MULTI;
+	if (mp->m_net_netdrv_dl_conf.mode & DL_BROAD_REQ)
+		dep->de_flags |= DEF_BROAD;
+
+	dp_reinit(dep);
+
+	reply_mess.m_type = DL_CONF_REPLY;
+	reply_mess.m_netdrv_net_dl_conf.stat = OK;
+
+	memcpy(reply_mess.m_netdrv_net_dl_conf.hw_addr, dep->de_address.ea_addr,
+		sizeof(reply_mess.m_netdrv_net_dl_conf.hw_addr));
+
+	mess_reply(mp, &reply_mess);
+}
+
+/*===========================================================================*
+ *				do_int					     *
+ *===========================================================================*/
+static void do_int(dep)
+dpeth_t *dep;
+{
+	if (dep->de_flags & (DEF_PACK_SEND | DEF_PACK_RECV))
+		reply(dep);
+}
+
+/*===========================================================================*
+ *				do_getstat_s				     *
+ *===========================================================================*/
+static void do_getstat_s(mp)
+message *mp;
+{
+	int r;
+	dpeth_t *dep;
+
+	dep= &de_state;
+
+	if (dep->de_mode == DEM_SINK)
+	{
+		put_userdata_s(mp->m_source,
+			mp->m_net_netdrv_dl_getstat_s.grant,
+			(vir_bytes) sizeof(dep->de_stat), &dep->de_stat);
+
+		mp->m_type= DL_STAT_REPLY;
+		r= ipc_send(mp->m_source, mp);
+		if (r != OK)
+			panic("do_getstat: ipc_send failed: %d", r);
+		return;
+	}
+	assert(dep->de_mode == DEM_ENABLED);
+	assert(dep->de_flags & DEF_ENABLED);
 
 	dep->de_stat.ets_CRCerr += inb_reg0(dep, DP_CNTR0);
 	dep->de_stat.ets_frameAll += inb_reg0(dep, DP_CNTR1);
 	dep->de_stat.ets_missedP += inb_reg0(dep, DP_CNTR2);
 
-	memcpy(stat, &dep->de_stat, sizeof(*stat));
+	put_userdata_s(mp->m_source, mp->m_net_netdrv_dl_getstat_s.grant,
+		sizeof(dep->de_stat), &dep->de_stat);
+
+	mp->m_type= DL_STAT_REPLY;
+	r= ipc_send(mp->m_source, mp);
+	if (r != OK)
+		panic("do_getstat: ipc_send failed: %d", r);
 }
 
 /*===========================================================================*
- *				do_stop					     *
+ *				dp_stop					     *
  *===========================================================================*/
-static void do_stop(void)
+static void dp_stop(dep)
+dpeth_t *dep;
 {
-	dpeth_t *dep;
 
-	dep = &de_state;
+	if (dep->de_mode == DEM_SINK)
+		return;
+	assert(dep->de_mode == DEM_ENABLED);
+
+	if (!(dep->de_flags & DEF_ENABLED))
+		return;
 
 	outb_reg0(dep, DP_CR, CR_STP | CR_DM_ABORT);
 	(dep->de_stopf)(dep);
+
+	dep->de_flags= DEF_EMPTY;
 }
 
 /*===========================================================================*
  *				dp_init					     *
  *===========================================================================*/
-static void dp_init(dpeth_t *dep)
+static void dp_init(dep)
+dpeth_t *dep;
 {
+	int dp_rcr_reg;
 	int i, r;
 
 	/* General initialization */
@@ -350,7 +669,14 @@ static void dp_init(dpeth_t *dep)
 	outb_reg0(dep, DP_RBCR0, 0);
 	outb_reg0(dep, DP_RBCR1, 0);
 	/* Step 4: */
-	outb_reg0(dep, DP_RCR, 0);
+	dp_rcr_reg = 0;
+	if (dep->de_flags & DEF_PROMISC)
+		dp_rcr_reg |= RCR_AB | RCR_PRO | RCR_AM;
+	if (dep->de_flags & DEF_BROAD)
+		dp_rcr_reg |= RCR_AB;
+	if (dep->de_flags & DEF_MULTI)
+		dp_rcr_reg |= RCR_AM;
+	outb_reg0(dep, DP_RCR, dp_rcr_reg);
 	/* Step 5: */
 	outb_reg0(dep, DP_TCR, TCR_INTERNAL);
 	/* Step 6: */
@@ -392,6 +718,7 @@ static void dp_init(dpeth_t *dep)
 	inb_reg0(dep, DP_CNTR2);
 
 	/* Finish the initialization. */
+	dep->de_flags |= DEF_ENABLED;
 	for (i= 0; i<dep->de_sendq_nr; i++)
 		dep->de_sendq[i].sq_filled= 0;
 	dep->de_sendq_head= 0;
@@ -425,13 +752,16 @@ static void dp_init(dpeth_t *dep)
 
 	r= sys_irqenable(&dep->de_hook);
 	if (r != OK)
-		panic("unable to enable interrupts: %d", r);
+	{
+		panic("unable enable interrupts: %d", r);
+	}
 }
 
 /*===========================================================================*
  *				dp_confaddr				     *
  *===========================================================================*/
-static void dp_confaddr(dpeth_t *dep)
+static void dp_confaddr(dep)
+dpeth_t *dep;
 {
 	int i;
 	char eakey[16];
@@ -456,9 +786,30 @@ static void dp_confaddr(dpeth_t *dep)
 }
 
 /*===========================================================================*
+ *				dp_reinit				     *
+ *===========================================================================*/
+static void dp_reinit(dep)
+dpeth_t *dep;
+{
+	int dp_rcr_reg;
+
+	outb_reg0(dep, DP_CR, CR_PS_P0 | CR_EXTRA);
+
+	dp_rcr_reg = 0;
+	if (dep->de_flags & DEF_PROMISC)
+		dp_rcr_reg |= RCR_AB | RCR_PRO | RCR_AM;
+	if (dep->de_flags & DEF_BROAD)
+		dp_rcr_reg |= RCR_AB;
+	if (dep->de_flags & DEF_MULTI)
+		dp_rcr_reg |= RCR_AM;
+	outb_reg0(dep, DP_RCR, dp_rcr_reg);
+}
+
+/*===========================================================================*
  *				dp_reset				     *
  *===========================================================================*/
-static void dp_reset(dpeth_t *dep)
+static void dp_reset(dep)
+dpeth_t *dep;
 {
 	int i;
 
@@ -484,20 +835,21 @@ static void dp_reset(dpeth_t *dep)
 	dep->de_sendq_head= dep->de_sendq_tail= 0;
 	for (i= 0; i<dep->de_sendq_nr; i++)
 		dep->de_sendq[i].sq_filled= 0;
-	netdriver_send();
+	dp_send(dep);
 	dep->de_flags &= ~DEF_STOPPED;
 }
 
 /*===========================================================================*
- *				do_intr					     *
+ *				dp_check_ints				     *
  *===========================================================================*/
-static void do_intr(unsigned int __unused mask)
+static void dp_check_ints(dep)
+dpeth_t *dep;
 {
-	dpeth_t *dep;
 	int isr, tsr;
-	int r, size, sendq_tail;
+	int size, sendq_tail;
 
-	dep = &de_state;
+	if (!(dep->de_flags & DEF_ENABLED))
+		panic("dp8390: got premature interrupt");
 
 	for(;;)
 	{
@@ -572,12 +924,17 @@ static void do_intr(unsigned int __unused mask)
 				outb_reg0(dep, DP_TBCR0, size & 0xff);
 				outb_reg0(dep, DP_CR, CR_TXP | CR_EXTRA);
 			}
-			netdriver_send();
+			if (dep->de_flags & DEF_SEND_AVAIL)
+				dp_send(dep);
 		}
 
 		if (isr & ISR_PRX)
-			netdriver_recv();
-
+		{
+			/* Only call dp_recv if there is a read request */
+			if (dep->de_flags & DEF_READING)
+				dp_recv(dep);
+		}
+		
 		if (isr & ISR_RXE) dep->de_stat.ets_recvErr++;
 		if (isr & ISR_CNT)
 		{
@@ -592,6 +949,12 @@ static void do_intr(unsigned int __unused mask)
 			{ printW(); printf(
 				"%s: got overwrite warning\n", dep->de_name); }
 #endif
+			if (dep->de_flags & DEF_READING)
+			{
+				printf(
+"dp_check_ints: strange: overwrite warning and pending read request\n");
+				dp_recv(dep);
+			}
 		}
 		if (isr & ISR_RDC)
 		{
@@ -609,28 +972,30 @@ static void do_intr(unsigned int __unused mask)
 				"%s: NIC stopped\n", dep->de_name); }
 #endif
 			dep->de_flags |= DEF_STOPPED;
-			netdriver_recv(); /* see if we can reset right now */
 			break;
 		}
 	}
-
-	if ((r = sys_irqenable(&dep->de_hook)) != OK)
-		panic("unable enable interrupts: %d", r);
+	if ((dep->de_flags & (DEF_READING|DEF_STOPPED)) == 
+						(DEF_READING|DEF_STOPPED))
+	{
+		/* The chip is stopped, and all arrived packets are 
+		 * delivered.
+		 */
+		dp_reset(dep);
+	}
 }
 
 /*===========================================================================*
- *				do_recv					     *
+ *				dp_recv					     *
  *===========================================================================*/
-static ssize_t do_recv(struct netdriver_data *data, size_t max)
+static void dp_recv(dep)
+dpeth_t *dep;
 {
-	dpeth_t *dep;
 	dp_rcvhdr_t header;
 	unsigned pageno, curr, next;
-	size_t length;
-	int packet_processed;
+	vir_bytes length;
+	int packet_processed, r;
 	u16_t eth_type;
-
-	dep = &de_state;
 
 	packet_processed = FALSE;
 	pageno = inb_reg0(dep, DP_BNRY) + 1;
@@ -642,16 +1007,7 @@ static ssize_t do_recv(struct netdriver_data *data, size_t max)
 		curr = inb_reg1(dep, DP_CURR);
 		outb_reg0(dep, DP_CR, CR_PS_P0 | CR_EXTRA);
 
-		if (curr == pageno) {
-			if (dep->de_flags & DEF_STOPPED) {
-				/* The chip is stopped, and all arrived packets
-				 * are delivered.
-				 */
-				dp_reset(dep);
-			}
-
-			return SUSPEND;
-		}
+		if (curr == pageno) break;
 
 		(dep->de_getblockf)(dep, pageno, (size_t)0, sizeof(header),
 			&header);
@@ -661,7 +1017,8 @@ static ssize_t do_recv(struct netdriver_data *data, size_t max)
 		length = (header.dr_rbcl | (header.dr_rbch << 8)) -
 			sizeof(dp_rcvhdr_t);
 		next = header.dr_next;
-		if (length < ETH_MIN_PACK_SIZE || length > max)
+		if (length < ETH_MIN_PACK_SIZE ||
+			length > ETH_MAX_PACK_SIZE_TAGGED)
 		{
 			printf("%s: packet with strange length arrived: %d\n",
 				dep->de_name, (int) length);
@@ -681,9 +1038,12 @@ static ssize_t do_recv(struct netdriver_data *data, size_t max)
 			dep->de_stat.ets_fifoOver++;
 			next = curr;
 		}
-		else if (header.dr_status & RSR_PRX)
+		else if ((header.dr_status & RSR_PRX) &&
+					   (dep->de_flags & DEF_ENABLED))
 		{
-			dp_pkt2user_s(dep, data, pageno, length);
+			r = dp_pkt2user_s(dep, pageno, length);
+			if (r != OK)
+				return;
 
 			packet_processed = TRUE;
 			dep->de_stat.ets_packetR++;
@@ -694,16 +1054,32 @@ static ssize_t do_recv(struct netdriver_data *data, size_t max)
 			outb_reg0(dep, DP_BNRY, next - 1);
 
 		pageno = next;
-	} while (!packet_processed);
+	}
+	while (!packet_processed);
+}
 
-	return length;
+/*===========================================================================*
+ *				dp_send					     *
+ *===========================================================================*/
+static void dp_send(dep)
+dpeth_t *dep;
+{
+	if (!(dep->de_flags & DEF_SEND_AVAIL))
+		return;
+
+	dep->de_flags &= ~DEF_SEND_AVAIL;
+	do_vwrite_s(&dep->de_sendmsg, TRUE);
 }
 
 /*===========================================================================*
  *				dp_getblock				     *
  *===========================================================================*/
-static void dp_getblock(dpeth_t *dep, int page, size_t offset, size_t size,
-	void *dst)
+static void dp_getblock(dep, page, offset, size, dst)
+dpeth_t *dep;
+int page;
+size_t offset;
+size_t size;
+void *dst;
 {
 	offset = page * DP_PAGESIZE + offset;
 
@@ -713,8 +1089,12 @@ static void dp_getblock(dpeth_t *dep, int page, size_t offset, size_t size,
 /*===========================================================================*
  *				dp_pio8_getblock			     *
  *===========================================================================*/
-static void dp_pio8_getblock(dpeth_t *dep, int page, size_t offset,
-	size_t size, void *dst)
+static void dp_pio8_getblock(dep, page, offset, size, dst)
+dpeth_t *dep;
+int page;
+size_t offset;
+size_t size;
+void *dst;
 {
 	offset = page * DP_PAGESIZE + offset;
 	outb_reg0(dep, DP_RBCR0, size & 0xFF);
@@ -729,8 +1109,12 @@ static void dp_pio8_getblock(dpeth_t *dep, int page, size_t offset,
 /*===========================================================================*
  *				dp_pio16_getblock			     *
  *===========================================================================*/
-static void dp_pio16_getblock(dpeth_t *dep, int page, size_t offset,
-	size_t size, void *dst)
+static void dp_pio16_getblock(dep, page, offset, size, dst)
+dpeth_t *dep;
+int page;
+size_t offset;
+size_t size;
+void *dst;
 {
 	offset = page * DP_PAGESIZE + offset;
 	outb_reg0(dep, DP_RBCR0, size & 0xFF);
@@ -746,10 +1130,12 @@ static void dp_pio16_getblock(dpeth_t *dep, int page, size_t offset,
 /*===========================================================================*
  *				dp_pkt2user_s				     *
  *===========================================================================*/
-static void dp_pkt2user_s(dpeth_t *dep, struct netdriver_data *data, int page,
-	size_t length)
+static int dp_pkt2user_s(dpeth_t *dep, int page, vir_bytes length)
 {
 	int last, count;
+
+	if (!(dep->de_flags & DEF_READING))
+		return EGENERIC;
 
 	last = page + (length - 1) / DP_PAGESIZE;
 	if (last >= dep->de_stoppage)
@@ -757,34 +1143,86 @@ static void dp_pkt2user_s(dpeth_t *dep, struct netdriver_data *data, int page,
 		count = (dep->de_stoppage - page) * DP_PAGESIZE -
 			sizeof(dp_rcvhdr_t);
 
-		(dep->de_nic2userf_s)(dep, data,
-		    page * DP_PAGESIZE + sizeof(dp_rcvhdr_t), 0, count);
-		(dep->de_nic2userf_s)(dep, data,
-		    dep->de_startpage * DP_PAGESIZE, count, length - count);
+		/* Save read_iovec since we need it twice. */
+		dep->de_tmp_iovec_s = dep->de_read_iovec_s;
+		(dep->de_nic2userf_s)(dep, page * DP_PAGESIZE +
+			sizeof(dp_rcvhdr_t), &dep->de_tmp_iovec_s, 0, count);
+		(dep->de_nic2userf_s)(dep, dep->de_startpage * DP_PAGESIZE, 
+				&dep->de_read_iovec_s, count, length - count);
 	}
 	else
 	{
-		(dep->de_nic2userf_s)(dep, data,
-		    page * DP_PAGESIZE + sizeof(dp_rcvhdr_t), 0, length);
+		(dep->de_nic2userf_s)(dep, page * DP_PAGESIZE +
+			sizeof(dp_rcvhdr_t), &dep->de_read_iovec_s, 0, length);
 	}
+
+	dep->de_read_s = length;
+	dep->de_flags |= DEF_PACK_RECV;
+	dep->de_flags &= ~DEF_READING;
+
+	return OK;
 }
 
 /*===========================================================================*
  *				dp_user2nic_s				     *
  *===========================================================================*/
-static void dp_user2nic_s(dpeth_t *dep, struct netdriver_data *data,
-	int nic_addr, size_t offset, size_t count)
+static void dp_user2nic_s(dep, iovp, offset, nic_addr, count)
+dpeth_t *dep;
+iovec_dat_s_t *iovp;
+vir_bytes offset;
+int nic_addr;
+vir_bytes count;
 {
-	netdriver_copyin(data, offset, dep->de_locmem + nic_addr, count);
+	vir_bytes vir_hw;
+	int bytes, i, r;
+
+	vir_hw = (vir_bytes)dep->de_locmem + nic_addr;
+
+	i= 0;
+	while (count > 0)
+	{
+		if (i >= IOVEC_NR)
+		{
+			dp_next_iovec_s(iovp);
+			i= 0;
+			continue;
+		}
+		assert(i < iovp->iod_iovec_s);
+		if (offset >= iovp->iod_iovec[i].iov_size)
+		{
+			offset -= iovp->iod_iovec[i].iov_size;
+			i++;
+			continue;
+		}
+		bytes = iovp->iod_iovec[i].iov_size - offset;
+		if (bytes > count)
+			bytes = count;
+
+		r= sys_safecopyfrom(iovp->iod_proc_nr,
+			iovp->iod_iovec[i].iov_grant, offset,
+			vir_hw, bytes);
+		if (r != OK) {
+			panic("dp_user2nic_s: sys_safecopyfrom failed: %d", r);
+		}
+
+		count -= bytes;
+		vir_hw += bytes;
+		offset += bytes;
+	}
+	assert(count == 0);
 }
 
 /*===========================================================================*
  *				dp_pio8_user2nic_s			     *
  *===========================================================================*/
-static void dp_pio8_user2nic_s(dpeth_t *dep, struct netdriver_data *data,
-	int nic_addr, size_t offset, size_t count)
+static void dp_pio8_user2nic_s(dep, iovp, offset, nic_addr, count)
+dpeth_t *dep;
+iovec_dat_s_t *iovp;
+vir_bytes offset;
+int nic_addr;
+vir_bytes count;
 {
-	int i;
+	int bytes, i, r;
 
 	outb_reg0(dep, DP_ISR, ISR_RDC);
 
@@ -794,7 +1232,36 @@ static void dp_pio8_user2nic_s(dpeth_t *dep, struct netdriver_data *data,
 	outb_reg0(dep, DP_RSAR1, nic_addr >> 8);
 	outb_reg0(dep, DP_CR, CR_DM_RW | CR_PS_P0 | CR_STA);
 
-	netdriver_portoutb(data, offset, dep->de_data_port, count);
+	i= 0;
+	while (count > 0)
+	{
+		if (i >= IOVEC_NR)
+		{
+			dp_next_iovec_s(iovp);
+			i= 0;
+			continue;
+		}
+		assert(i < iovp->iod_iovec_s);
+		if (offset >= iovp->iod_iovec[i].iov_size)
+		{
+			offset -= iovp->iod_iovec[i].iov_size;
+			i++;
+			continue;
+		}
+		bytes = iovp->iod_iovec[i].iov_size - offset;
+		if (bytes > count)
+			bytes = count;
+
+		r= sys_safe_outsb(dep->de_data_port, iovp->iod_proc_nr,
+			iovp->iod_iovec[i].iov_grant, offset, bytes);
+		if (r != OK) {
+				panic("dp_pio8_user2nic_s: sys_safe_outsb failed: %d",
+					r);
+		}
+		count -= bytes;
+		offset += bytes;
+	}
+	assert(count == 0);
 
 	for (i= 0; i<100; i++)
 	{
@@ -810,13 +1277,21 @@ static void dp_pio8_user2nic_s(dpeth_t *dep, struct netdriver_data *data,
 /*===========================================================================*
  *				dp_pio16_user2nic_s			     *
  *===========================================================================*/
-static void dp_pio16_user2nic_s(dpeth_t *dep, struct netdriver_data *data,
-	int nic_addr, size_t offset, size_t count)
+static void dp_pio16_user2nic_s(dep, iovp, offset, nic_addr, count)
+dpeth_t *dep;
+iovec_dat_s_t *iovp;
+vir_bytes offset;
+int nic_addr;
+vir_bytes count;
 {
-	size_t ecount;
-	int i;
+	vir_bytes ecount;
+	cp_grant_id_t gid;
+	int i, r, bytes, user_proc;
+	u8_t two_bytes[2];
+	int odd_byte;
 
 	ecount= (count+1) & ~1;
+	odd_byte= 0;
 
 	outb_reg0(dep, DP_ISR, ISR_RDC);
 	outb_reg0(dep, DP_RBCR0, ecount & 0xFF);
@@ -825,7 +1300,73 @@ static void dp_pio16_user2nic_s(dpeth_t *dep, struct netdriver_data *data,
 	outb_reg0(dep, DP_RSAR1, nic_addr >> 8);
 	outb_reg0(dep, DP_CR, CR_DM_RW | CR_PS_P0 | CR_STA);
 
-	netdriver_portoutw(data, offset, dep->de_data_port, count);
+	i= 0;
+	while (count > 0)
+	{
+		if (i >= IOVEC_NR)
+		{
+			dp_next_iovec_s(iovp);
+			i= 0;
+			continue;
+		}
+		assert(i < iovp->iod_iovec_s);
+		if (offset >= iovp->iod_iovec[i].iov_size)
+		{
+			offset -= iovp->iod_iovec[i].iov_size;
+			i++;
+			continue;
+		}
+		bytes = iovp->iod_iovec[i].iov_size - offset;
+		if (bytes > count)
+			bytes = count;
+
+		user_proc= iovp->iod_proc_nr;
+		gid= iovp->iod_iovec[i].iov_grant;
+		if (odd_byte)
+		{
+			r= sys_safecopyfrom(user_proc, gid, offset, 
+				(vir_bytes)&two_bytes[1], 1);
+			if (r != OK) { 
+				panic("dp_pio16_user2nic: sys_safecopyfrom failed: %d", r);
+			}
+			outw(dep->de_data_port, *(u16_t *)two_bytes);
+			count--;
+			offset++;
+			bytes--;
+			odd_byte= 0;
+			if (!bytes)
+				continue;
+		}
+		ecount= bytes & ~1;
+		if (ecount != 0)
+		{
+			r= sys_safe_outsw(dep->de_data_port, user_proc,
+				gid, offset, ecount);
+			if (r != OK) {
+				panic("dp_pio16_user2nic: sys_safe_outsw failed: %d", r);
+			}
+			count -= ecount;
+			offset += ecount;
+			bytes -= ecount;
+		}
+		if (bytes)
+		{
+			assert(bytes == 1);
+			r= sys_safecopyfrom(user_proc, gid, offset,
+				(vir_bytes)&two_bytes[0], 1);
+			if (r != OK) {
+				panic("dp_pio16_user2nic: sys_safecopyfrom failed: %d", r);
+			}
+			count--;
+			offset++;
+			bytes--;
+			odd_byte= 1;
+		}
+	}
+	assert(count == 0);
+
+	if (odd_byte)
+		outw(dep->de_data_port, *(u16_t *)two_bytes);
 
 	for (i= 0; i<100; i++)
 	{
@@ -841,36 +1382,118 @@ static void dp_pio16_user2nic_s(dpeth_t *dep, struct netdriver_data *data,
 /*===========================================================================*
  *				dp_nic2user_s				     *
  *===========================================================================*/
-static void dp_nic2user_s(dpeth_t *dep, struct netdriver_data *data,
-	int nic_addr, size_t offset, size_t count)
+static void dp_nic2user_s(dep, nic_addr, iovp, offset, count)
+dpeth_t *dep;
+int nic_addr;
+iovec_dat_s_t *iovp;
+vir_bytes offset;
+vir_bytes count;
 {
-	netdriver_copyout(data, offset, dep->de_locmem + nic_addr, count);
+	vir_bytes vir_hw;
+	int bytes, i, r;
+
+	vir_hw = (vir_bytes)dep->de_locmem + nic_addr;
+
+	i= 0;
+	while (count > 0)
+	{
+		if (i >= IOVEC_NR)
+		{
+			dp_next_iovec_s(iovp);
+			i= 0;
+			continue;
+		}
+		assert(i < iovp->iod_iovec_s);
+		if (offset >= iovp->iod_iovec[i].iov_size)
+		{
+			offset -= iovp->iod_iovec[i].iov_size;
+			i++;
+			continue;
+		}
+		bytes = iovp->iod_iovec[i].iov_size - offset;
+		if (bytes > count)
+			bytes = count;
+
+		r= sys_safecopyto(iovp->iod_proc_nr,
+			iovp->iod_iovec[i].iov_grant, offset,
+			vir_hw, bytes);
+		if (r != OK)
+			panic("dp_nic2user_s: sys_safecopyto failed: %d", r);
+
+		count -= bytes;
+		vir_hw += bytes;
+		offset += bytes;
+	}
+	assert(count == 0);
 }
 
 /*===========================================================================*
  *				dp_pio8_nic2user_s			     *
  *===========================================================================*/
-static void dp_pio8_nic2user_s(dpeth_t *dep, struct netdriver_data *data,
-	int nic_addr, size_t offset, size_t count)
+static void dp_pio8_nic2user_s(dep, nic_addr, iovp, offset, count)
+dpeth_t *dep;
+int nic_addr;
+iovec_dat_s_t *iovp;
+vir_bytes offset;
+vir_bytes count;
 {
+	int bytes, i, r;
+
 	outb_reg0(dep, DP_RBCR0, count & 0xFF);
 	outb_reg0(dep, DP_RBCR1, count >> 8);
 	outb_reg0(dep, DP_RSAR0, nic_addr & 0xFF);
 	outb_reg0(dep, DP_RSAR1, nic_addr >> 8);
 	outb_reg0(dep, DP_CR, CR_DM_RR | CR_PS_P0 | CR_STA);
 
-	netdriver_portinb(data, offset, dep->de_data_port, count);
+	i= 0;
+	while (count > 0)
+	{
+		if (i >= IOVEC_NR)
+		{
+			dp_next_iovec_s(iovp);
+			i= 0;
+			continue;
+		}
+		assert(i < iovp->iod_iovec_s);
+		if (offset >= iovp->iod_iovec[i].iov_size)
+		{
+			offset -= iovp->iod_iovec[i].iov_size;
+			i++;
+			continue;
+		}
+		bytes = iovp->iod_iovec[i].iov_size - offset;
+		if (bytes > count)
+			bytes = count;
+
+		r= sys_safe_insb(dep->de_data_port, iovp->iod_proc_nr,
+			iovp->iod_iovec[i].iov_grant, offset, bytes);
+		if (r != OK) {
+			panic("dp_pio8_nic2user_s: sys_safe_insb failed: %d", r);
+		}
+		count -= bytes;
+		offset += bytes;
+	}
+	assert(count == 0);
 }
 
 /*===========================================================================*
  *				dp_pio16_nic2user_s			     *
  *===========================================================================*/
-static void dp_pio16_nic2user_s(dpeth_t *dep, struct netdriver_data *data,
-	int nic_addr, size_t offset, size_t count)
+static void dp_pio16_nic2user_s(dep, nic_addr, iovp, offset, count)
+dpeth_t *dep;
+int nic_addr;
+iovec_dat_s_t *iovp;
+vir_bytes offset;
+vir_bytes count;
 {
-	size_t ecount;
+	vir_bytes ecount;
+	cp_grant_id_t gid;
+	int i, r, bytes, user_proc;
+	u8_t two_bytes[2];
+	int odd_byte;
 
 	ecount= (count+1) & ~1;
+	odd_byte= 0;
 
 	outb_reg0(dep, DP_RBCR0, ecount & 0xFF);
 	outb_reg0(dep, DP_RBCR1, ecount >> 8);
@@ -878,49 +1501,166 @@ static void dp_pio16_nic2user_s(dpeth_t *dep, struct netdriver_data *data,
 	outb_reg0(dep, DP_RSAR1, nic_addr >> 8);
 	outb_reg0(dep, DP_CR, CR_DM_RR | CR_PS_P0 | CR_STA);
 
-	netdriver_portinw(data, offset, dep->de_data_port, count);
+	i= 0;
+	while (count > 0)
+	{
+		if (i >= IOVEC_NR)
+		{
+			dp_next_iovec_s(iovp);
+			i= 0;
+			continue;
+		}
+		assert(i < iovp->iod_iovec_s);
+		if (offset >= iovp->iod_iovec[i].iov_size)
+		{
+			offset -= iovp->iod_iovec[i].iov_size;
+			i++;
+			continue;
+		}
+		bytes = iovp->iod_iovec[i].iov_size - offset;
+		if (bytes > count)
+			bytes = count;
+
+		user_proc= iovp->iod_proc_nr;
+		gid= iovp->iod_iovec[i].iov_grant;
+		if (odd_byte)
+		{
+			r= sys_safecopyto(user_proc, gid, offset,
+				(vir_bytes)&two_bytes[1], 1);
+			if (r != OK) {
+				panic("dp_pio16_nic2user: sys_safecopyto failed: %d", r);
+			}
+			count--;
+			offset++;
+			bytes--;
+			odd_byte= 0;
+			if (!bytes)
+				continue;
+		}
+		ecount= bytes & ~1;
+		if (ecount != 0)
+		{
+			r= sys_safe_insw(dep->de_data_port, user_proc, gid,
+				offset, ecount);
+			if (r != OK) {
+				panic("dp_pio16_nic2user: sys_safe_insw failed: %d",
+				r);
+			}
+			count -= ecount;
+			offset += ecount;
+			bytes -= ecount;
+		}
+		if (bytes)
+		{
+			assert(bytes == 1);
+			*(u16_t *)two_bytes= inw(dep->de_data_port);
+			r= sys_safecopyto(user_proc, gid, offset,
+				(vir_bytes)&two_bytes[0], 1);
+			if (r != OK)
+			{
+				panic("dp_pio16_nic2user: sys_safecopyto failed: %d",
+					r);
+			}
+			count--;
+			offset++;
+			bytes--;
+			odd_byte= 1;
+		}
+	}
+	assert(count == 0);
+}
+
+/*===========================================================================*
+ *				dp_next_iovec_s				     *
+ *===========================================================================*/
+static void dp_next_iovec_s(iovp)
+iovec_dat_s_t *iovp;
+{
+	assert(iovp->iod_iovec_s > IOVEC_NR);
+
+	iovp->iod_iovec_s -= IOVEC_NR;
+
+	iovp->iod_iovec_offset += IOVEC_NR * sizeof(iovec_t);
+
+	get_userdata_s(iovp->iod_proc_nr, iovp->iod_grant,
+		iovp->iod_iovec_offset, 
+		(iovp->iod_iovec_s > IOVEC_NR ? IOVEC_NR : iovp->iod_iovec_s) *
+		sizeof(iovp->iod_iovec[0]), iovp->iod_iovec); 
 }
 
 /*===========================================================================*
  *				conf_hw					     *
  *===========================================================================*/
-static void conf_hw(dpeth_t *dep)
+static void conf_hw(dep)
+dpeth_t *dep;
 {
+	static eth_stat_t empty_stat = {0, 0, 0, 0, 0, 0 	/* ,... */ };
+
 	int confnr;
 	dp_conf_t *dcp;
+
+	dep->de_mode= DEM_DISABLED;	/* Superfluous */
 
 	/* Pick a default configuration for this instance. */
 	confnr= MIN(de_instance, DP_CONF_NR-1);
 
 	dcp= &dp_conf[confnr];
 	update_conf(dep, dcp);
+	if (dep->de_mode != DEM_ENABLED)
+		return;
 	if (!wdeth_probe(dep) && !ne_probe(dep) && !el2_probe(dep))
-		panic("no ethernet card found at 0x%x\n", dep->de_base_port);
+	{
+		printf("%s: No ethernet card found at 0x%x\n", 
+			dep->de_name, dep->de_base_port);
+		dep->de_mode= DEM_DISABLED;
+		return;
+	}
 
 /* XXX */ if (dep->de_linmem == 0) dep->de_linmem= 0xFFFF0000;
+
+	dep->de_flags = DEF_EMPTY;
+	dep->de_stat = empty_stat;
 }
 
 /*===========================================================================*
  *				update_conf				     *
  *===========================================================================*/
-static void update_conf(dpeth_t *dep, dp_conf_t *dcp)
+static void update_conf(dep, dcp)
+dpeth_t *dep;
+dp_conf_t *dcp;
 {
 	long v;
 	static char dpc_fmt[] = "x:d:x:x";
 	char eckey[16];
 
+#if ENABLE_PCI
 	if (dep->de_pci)
 	{
-		/* PCI device is present */
+		if (dep->de_pci == 1)
+		{
+			/* PCI device is present */
+			dep->de_mode= DEM_ENABLED;
+		}
 		return;		/* Already configured */
 	}
+#endif
 
 	strlcpy(eckey, "DPETH0", sizeof(eckey));
 	eckey[5] += de_instance;
 
 	/* Get the default settings and modify them from the environment. */
+	dep->de_mode= DEM_SINK;
 	v= dcp->dpc_port;
-	(void) env_parse(eckey, dpc_fmt, 0, &v, 0x0000L, 0xFFFFL);
+	switch (env_parse(eckey, dpc_fmt, 0, &v, 0x0000L, 0xFFFFL)) {
+	case EP_OFF:
+		dep->de_mode= DEM_DISABLED;
+		break;
+	case EP_ON:
+	case EP_SET:
+		dep->de_mode= DEM_ENABLED;	/* Might become disabled if 
+						 * all probes fail */
+		break;
+	}
 	dep->de_base_port= v;
 
 	v= dcp->dpc_irq | DEI_DEFAULT;
@@ -939,7 +1679,8 @@ static void update_conf(dpeth_t *dep, dp_conf_t *dcp)
 /*===========================================================================*
  *				map_hw_buffer				     *
  *===========================================================================*/
-static void map_hw_buffer(dpeth_t *dep)
+static void map_hw_buffer(dep)
+dpeth_t *dep;
 {
 
 	if (dep->de_prog_IO)
@@ -956,6 +1697,108 @@ static void map_hw_buffer(dpeth_t *dep)
 		vm_map_phys(SELF, (void *) dep->de_linmem, dep->de_ramsize);
 	if (dep->de_locmem == MAP_FAILED)
 		panic("map_hw_buffer: vm_map_phys failed");
+}
+
+/*===========================================================================*
+ *				calc_iovec_size_s			     *
+ *===========================================================================*/
+static int calc_iovec_size_s(iovp)
+iovec_dat_s_t *iovp;
+{
+	/* Calculate the size of a request. Note that the iovec_dat
+	 * structure will be unusable after calc_iovec_size_s.
+	 */
+	int size;
+	int i;
+
+	size= 0;
+	i= 0;
+	while (i < iovp->iod_iovec_s)
+	{
+		if (i >= IOVEC_NR)
+		{
+			dp_next_iovec_s(iovp);
+			i= 0;
+			continue;
+		}
+		size += iovp->iod_iovec[i].iov_size;
+		i++;
+	}
+	return size;
+}
+
+/*===========================================================================*
+ *				reply					     *
+ *===========================================================================*/
+static void reply(dep)
+dpeth_t *dep;
+{
+	message reply;
+	int flags;
+	int r;
+
+	flags = DL_NOFLAGS;
+	if (dep->de_flags & DEF_PACK_SEND)
+		flags |= DL_PACK_SEND;
+	if (dep->de_flags & DEF_PACK_RECV)
+		flags |= DL_PACK_RECV;
+
+	reply.m_type = DL_TASK_REPLY;
+	reply.m_netdrv_net_dl_task.flags = flags;
+	reply.m_netdrv_net_dl_task.count = dep->de_read_s;
+	r= ipc_send(dep->de_client, &reply);
+
+	if (r < 0)
+		panic("dp8390: ipc_send failed: %d", r);
+	
+	dep->de_read_s = 0;
+	dep->de_flags &= ~(DEF_PACK_SEND | DEF_PACK_RECV);
+}
+
+/*===========================================================================*
+ *				mess_reply				     *
+ *===========================================================================*/
+static void mess_reply(req, reply_mess)
+message *req;
+message *reply_mess;
+{
+	if (ipc_send(req->m_source, reply_mess) != OK)
+		panic("dp8390: unable to mess_reply");
+}
+
+/*===========================================================================*
+ *				get_userdata_s				     *
+ *===========================================================================*/
+static void get_userdata_s(user_proc, grant, offset, count, loc_addr)
+int user_proc;
+cp_grant_id_t grant;
+vir_bytes offset;
+vir_bytes count;
+void *loc_addr;
+{
+	int r;
+
+	r= sys_safecopyfrom(user_proc, grant, offset,
+		(vir_bytes)loc_addr, count);
+	if (r != OK)
+		panic("get_userdata: sys_safecopyfrom failed: %d", r);
+}
+
+/*===========================================================================*
+ *				put_userdata_s				     *
+ *===========================================================================*/
+static void put_userdata_s(user_proc, grant, count, loc_addr)
+int user_proc;
+cp_grant_id_t grant;
+size_t count;
+void *loc_addr;
+{
+	int r;
+
+	r= sys_safecopyto(user_proc, grant, 0, (vir_bytes)loc_addr, 
+		count);
+	if (r != OK)
+		panic("put_userdata: sys_safecopyto failed: %d", r);
 }
 
 u8_t inb(port_t port)
@@ -1003,18 +1846,28 @@ void outw(port_t port, u16_t value)
 
 static void insb(port_t port, void *buf, size_t size)
 {
-	int r;
-
-	r= sys_insb(port, SELF, buf, size);
-	if (r != OK)
-		panic("sys_sdevio failed: %d", r);
+	do_vir_insb(port, SELF, (vir_bytes)buf, size);
 }
 
 static void insw(port_t port, void *buf, size_t size)
 {
+	do_vir_insw(port, SELF, (vir_bytes)buf, size);
+}
+
+static void do_vir_insb(port_t port, int proc, vir_bytes buf, size_t size)
+{
 	int r;
 
-	r= sys_insw(port, SELF, buf, size);
+	r= sys_insb(port, proc, (void *) buf, size);
+	if (r != OK)
+		panic("sys_sdevio failed: %d", r);
+}
+
+static void do_vir_insw(port_t port, int proc, vir_bytes buf, size_t size)
+{
+	int r;
+
+	r= sys_insw(port, proc, (void *) buf, size);
 	if (r != OK)
 		panic("sys_sdevio failed: %d", r);
 }

@@ -34,7 +34,7 @@ PROGRAMS=		# defined
 PROGRAMS+=		fsck_mfs
 dir.fsck_mfs:=	minix/commands/fsck.mfs
 PROGRAMS+=		grep
-dir.grep:=	minix/usr.bin/grep
+dir.grep:=	minix/commands/grep
 PROGRAMS+=		input
 dir.input:=	minix/servers/input
 PROGRAMS+=		loadramdisk
@@ -45,8 +45,8 @@ PROGRAMS+=		mount
 dir.mount:=	minix/commands/mount
 PROGRAMS+=		procfs
 dir.procfs:=	minix/fs/procfs
-PROGRAMS+=		minix-service
-dir.minix-service:=	minix/commands/minix-service
+PROGRAMS+=		service
+dir.service:=	minix/commands/service
 PROGRAMS+=		sh
 dir.sh:=	bin/sh
 PROGRAMS+=		sysenv
@@ -72,8 +72,6 @@ PROGRAMS+=		cdprobe
 dir.cdprobe:=	minix/commands/cdprobe
 PROGRAMS+=		pwd_mkdb
 dir.pwd_mkdb:=	usr.sbin/pwd_mkdb
-PROGRAMS+=		isofs
-dir.isofs:=	minix/fs/isofs
 
 .if ${MKSMALL} != "yes"
 PROGRAMS+=		ahci
@@ -190,9 +188,9 @@ etc/master.passwd: ${NETBSDSRCDIR}/etc/master.passwd
 	${TOOL_PWD_MKDB} -V 0 -p -d . etc/master.passwd
 
 proto.dev.mtree:
-	@echo ". type=dir uname=root gname=wheel mode=0755" \
+	@echo ". type=dir uname=root gname=operator mode=0755" \
 		>${.TARGET}.tmp && \
-	echo "./dev type=dir uname=root gname=wheel mode=0755" \
+	echo "./dev type=dir uname=root gname=operator mode=0755" \
 		>>${.TARGET}.tmp && \
 	${NETBSDSRCDIR}/minix/commands/MAKEDEV/MAKEDEV.sh -m -r \
 		>> ${.TARGET}.tmp && mv ${.TARGET}.tmp ${.TARGET}

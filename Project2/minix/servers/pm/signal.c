@@ -43,7 +43,7 @@ int do_sigaction(void)
   struct sigaction svec;
   struct sigaction *svp;
 
-  assert(!(mp->mp_flags & (PROC_STOPPED | VFS_CALL | UNPAUSED | EVENT_CALL)));
+  assert(!(mp->mp_flags & (PROC_STOPPED | VFS_CALL | UNPAUSED)));
 
   sig_nr = m_in.m_lc_pm_sig.nr;
   if (sig_nr == SIGKILL) return(OK);
@@ -90,7 +90,7 @@ int do_sigaction(void)
  *===========================================================================*/
 int do_sigpending(void)
 {
-  assert(!(mp->mp_flags & (PROC_STOPPED | VFS_CALL | UNPAUSED | EVENT_CALL)));
+  assert(!(mp->mp_flags & (PROC_STOPPED | VFS_CALL | UNPAUSED)));
 
   mp->mp_reply.m_pm_lc_sigset.set = mp->mp_sigpending;
   return OK;
@@ -114,7 +114,7 @@ int do_sigprocmask(void)
   sigset_t set;
   int i;
 
-  assert(!(mp->mp_flags & (PROC_STOPPED | VFS_CALL | UNPAUSED | EVENT_CALL)));
+  assert(!(mp->mp_flags & (PROC_STOPPED | VFS_CALL | UNPAUSED)));
 
   set = m_in.m_lc_pm_sigset.set;
   mp->mp_reply.m_pm_lc_sigset.set = mp->mp_sigmask;
@@ -159,7 +159,7 @@ int do_sigprocmask(void)
  *===========================================================================*/
 int do_sigsuspend(void)
 {
-  assert(!(mp->mp_flags & (PROC_STOPPED | VFS_CALL | UNPAUSED | EVENT_CALL)));
+  assert(!(mp->mp_flags & (PROC_STOPPED | VFS_CALL | UNPAUSED)));
 
   mp->mp_sigmask2 = mp->mp_sigmask;	/* save the old mask */
   mp->mp_sigmask = m_in.m_lc_pm_sigset.set;
@@ -180,7 +180,7 @@ int do_sigreturn(void)
  */
   int r;
 
-  assert(!(mp->mp_flags & (PROC_STOPPED | VFS_CALL | UNPAUSED | EVENT_CALL)));
+  assert(!(mp->mp_flags & (PROC_STOPPED | VFS_CALL | UNPAUSED)));
 
   mp->mp_sigmask = m_in.m_lc_pm_sigset.set;
   sigdelset(&mp->mp_sigmask, SIGKILL);
@@ -270,13 +270,11 @@ static void try_resume_proc(struct mproc *rmp)
 
   assert(rmp->mp_flags & PROC_STOPPED);
 
-  /* If the process is blocked on a VFS call or a process event notification,
-   * do not resume it now.  Most likely it will be unpausing, in which case the
-   * process must remain stopped.  Otherwise, it will still be resumed once the
-   * VFS or event call is replied to.  If the process has died, do not resume
-   * it either.
+  /* If the process is blocked on a VFS call, do not resume it now. Most likely    * it will be unpausing, in which case the process must remain stopped.
+   * Otherwise, it will still be resumed once the VFS call returns. If the
+   * process has died, do not resume it either.
    */
-  if (rmp->mp_flags & (VFS_CALL | EVENT_CALL | EXITING))
+  if (rmp->mp_flags & (VFS_CALL | EXITING))
 	return;
 
   if ((r = sys_resume(rmp->mp_endpoint)) != OK)
@@ -332,7 +330,6 @@ int process_ksig(endpoint_t proc_nr_e, int signo)
   	break;
   }
   check_sig(id, signo, TRUE /* ksig */);
-  mp->mp_procgrp = 0;			/* restore proper PM process group */
 
   /* If SIGSNDELAY is set, an earlier sys_stop() failed because the process was
    * still sending, and the kernel hereby tells us that the process is now done
@@ -356,7 +353,7 @@ int process_ksig(endpoint_t proc_nr_e, int signo)
 	 * that case, we must wait with further signal processing until VFS has
 	 * replied. Stop the process.
 	 */
-	if (rmp->mp_flags & (VFS_CALL | EVENT_CALL)) {
+	if (rmp->mp_flags & VFS_CALL) {
 		stop_proc(rmp, FALSE /*may_delay*/);
 
 		return OK;
@@ -367,7 +364,7 @@ int process_ksig(endpoint_t proc_nr_e, int signo)
 
 	assert(!(rmp->mp_flags & DELAY_CALL));
   }
-
+  
   /* See if the process is still alive */
   if ((mproc[proc_nr].mp_flags & (IN_USE | EXITING)) == IN_USE)  {
       return OK; /* signal has been delivered */
@@ -380,24 +377,22 @@ int process_ksig(endpoint_t proc_nr_e, int signo)
 /*===========================================================================*
  *				sig_proc				     *
  *===========================================================================*/
-void
-sig_proc(
-	register struct mproc *rmp,	/* pointer to the process to be signaled */
-	int signo,			/* signal to send to process (1 to _NSIG-1) */
-	int trace,			/* pass signal to tracer first? */
-	int ksig			/* non-zero means signal comes from kernel  */
-)
+void sig_proc(rmp, signo, trace, ksig)
+register struct mproc *rmp;	/* pointer to the process to be signaled */
+int signo;			/* signal to send to process (1 to _NSIG-1) */
+int trace;			/* pass signal to tracer first? */
+int ksig;			/* non-zero means signal comes from kernel  */
 {
 /* Send a signal to a process.  Check to see if the signal is to be caught,
- * ignored, tranformed into a message (for system processes) or blocked.
+ * ignored, tranformed into a message (for system processes) or blocked.  
  *  - If the signal is to be transformed into a message, request the KERNEL to
- * send the target process a system notification with the pending signal as an
- * argument.
- *  - If the signal is to be caught, request the KERNEL to push a sigcontext
- * structure and a sigframe structure onto the catcher's stack.  Also, KERNEL
- * will reset the program counter and stack pointer, so that when the process
- * next runs, it will be executing the signal handler. When the signal handler
- * returns,  sigreturn(2) will be called.  Then KERNEL will restore the signal
+ * send the target process a system notification with the pending signal as an 
+ * argument. 
+ *  - If the signal is to be caught, request the KERNEL to push a sigcontext 
+ * structure and a sigframe structure onto the catcher's stack.  Also, KERNEL 
+ * will reset the program counter and stack pointer, so that when the process 
+ * next runs, it will be executing the signal handler. When the signal handler 
+ * returns,  sigreturn(2) will be called.  Then KERNEL will restore the signal 
  * context from the sigcontext structure.
  * If there is insufficient stack space, kill the process.
  */
@@ -422,17 +417,17 @@ sig_proc(
 	return;
   }
 
-  if (rmp->mp_flags & (VFS_CALL | EVENT_CALL)) {
+  if (rmp->mp_flags & VFS_CALL) {
 	sigaddset(&rmp->mp_sigpending, signo);
 	if(ksig)
 		sigaddset(&rmp->mp_ksigpending, signo);
 
-	/* Process the signal once VFS and process event subscribers reply.
-	 * Stop the process in the meantime, so that it cannot make another
-	 * call after the VFS reply comes in but before we look at its signals
-	 * again. Since we always stop the process to deliver signals during a
-	 * VFS or event call, the PROC_STOPPED flag doubles as an indicator in
-	 * restart_sigs() that signals must be rechecked after a reply arrives.
+	/* Process the signal once VFS replies. Stop the process in the
+	 * meantime, so that it cannot make another call after the VFS reply
+	 * comes in but before we look at its signals again. Since we always
+	 * stop the process to deliver signals during a VFS call, the
+	 * PROC_STOPPED flag doubles as an indicator in restart_sigs() that
+	 * signals must be rechecked after a VFS reply comes in.
 	 */
 	if (!(rmp->mp_flags & (PROC_STOPPED | DELAY_CALL))) {
 		/* If a VFS call is ongoing and the process is not yet stopped,
@@ -484,7 +479,7 @@ sig_proc(
 	  sigismember(&rmp->mp_ignore, signo) ||
 	  sigismember(&rmp->mp_sigmask, signo));
 
-  if (!badignore && sigismember(&rmp->mp_ignore, signo)) {
+  if (!badignore && sigismember(&rmp->mp_ignore, signo)) { 
 	/* Signal should be ignored. */
 	return;
   }
@@ -542,11 +537,9 @@ sig_proc(
 /*===========================================================================*
  *				sig_proc_exit				     *
  *===========================================================================*/
-static void
-sig_proc_exit(
-	struct mproc *rmp,		/* process that must exit */
-	int signo			/* signal that caused termination */
-)
+static void sig_proc_exit(rmp, signo)
+struct mproc *rmp;		/* process that must exit */
+int signo;			/* signal that caused termination */
 {
   rmp->mp_sigstatus = (char) signo;
   if (sigismember(&core_sset, signo)) {
@@ -648,8 +641,8 @@ int ksig;			/* non-zero means signal comes from kernel  */
 /*===========================================================================*
  *				check_pending				     *
  *===========================================================================*/
-void
-check_pending(register struct mproc *rmp)
+void check_pending(rmp)
+register struct mproc *rmp;
 {
   /* Check to see if any pending signals have been unblocked. Deliver as many
    * of them as we can, until we have to wait for a reply from VFS first.
@@ -669,7 +662,7 @@ check_pending(register struct mproc *rmp)
 		sigdelset(&rmp->mp_ksigpending, i);
 		sig_proc(rmp, i, FALSE /*trace*/, ksig);
 
-		if (rmp->mp_flags & (VFS_CALL | EVENT_CALL)) {
+		if (rmp->mp_flags & VFS_CALL) {
 			/* Signals must be rechecked upon return from the new
 			 * VFS call, unless the process was killed. In both
 			 * cases, the process is stopped.
@@ -684,13 +677,13 @@ check_pending(register struct mproc *rmp)
 /*===========================================================================*
  *				restart_sigs				     *
  *===========================================================================*/
-void
-restart_sigs(struct mproc *rmp)
+void restart_sigs(rmp)
+struct mproc *rmp;
 {
 /* VFS has replied to a request from us; do signal-related work.
  */
 
-  if (rmp->mp_flags & (VFS_CALL | EVENT_CALL | EXITING)) return;
+  if (rmp->mp_flags & (VFS_CALL | EXITING)) return;
 
   if (rmp->mp_flags & TRACE_EXIT) {
 	/* Tracer requested exit with specific exit value */
@@ -716,10 +709,8 @@ restart_sigs(struct mproc *rmp)
 /*===========================================================================*
  *				unpause					     *
  *===========================================================================*/
-static int
-unpause(
-	struct mproc *rmp		/* which process */
-)
+static int unpause(rmp)
+struct mproc *rmp;		/* which process */
 {
 /* A signal is to be sent to a process.  If that process is hanging on a
  * system call, the system call must be terminated with EINTR.  First check if
@@ -728,7 +719,7 @@ unpause(
  */
   message m;
 
-  assert(!(rmp->mp_flags & (VFS_CALL | EVENT_CALL)));
+  assert(!(rmp->mp_flags & VFS_CALL));
 
   /* If the UNPAUSED flag is set, VFS replied to an earlier unpause request. */
   if (rmp->mp_flags & UNPAUSED) {
@@ -752,10 +743,9 @@ unpause(
 	return TRUE;
   }
 
-  /* Not paused in PM. Let VFS, and after that any matching process event
-   * subscribers, try to unpause the process. The process needs to be stopped
-   * for this. If it is not already stopped, try to stop it now. If that does
-   * not succeed immediately, postpone signal delivery.
+  /* Not paused in PM. Let VFS try to unpause the process. The process needs to
+   * be stopped for this. If it is not already stopped, try to stop it now. If
+   * that does not succeed immediately, postpone signal delivery.
    */
   if (!(rmp->mp_flags & PROC_STOPPED) && !stop_proc(rmp, TRUE /*may_delay*/))
 	return FALSE;
@@ -766,17 +756,18 @@ unpause(
 
   tell_vfs(rmp, &m);
 
+  /* Also tell VM. */
+  vm_notify_sig_wrapper(rmp->mp_endpoint);
+
   return FALSE;
 }
 
 /*===========================================================================*
  *				sig_send				     *
  *===========================================================================*/
-static int
-sig_send(
-	struct mproc *rmp,		/* what process to spawn a signal handler in */
-	int signo			/* signal to send to process (1 to _NSIG-1) */
-)
+static int sig_send(rmp, signo)
+struct mproc *rmp;		/* what process to spawn a signal handler in */
+int signo;			/* signal to send to process (1 to _NSIG-1) */
 {
 /* The process is supposed to catch this signal. Spawn a signal handler.
  * Return TRUE if this succeeded, FALSE otherwise.
@@ -852,4 +843,29 @@ sig_send(
   }
 
   return(TRUE);
+}
+
+/*===========================================================================*
+ *				vm_notify_sig_wrapper			     *
+ *===========================================================================*/
+void vm_notify_sig_wrapper(endpoint_t ep)
+{
+/* get IPC's endpoint,
+ * the reason that we directly get the endpoint
+ * instead of from DS server is that otherwise
+ * it will cause deadlock between PM, VM and DS.
+ */
+  struct mproc *rmp;
+  endpoint_t ipc_ep = 0;
+
+  for (rmp = &mproc[0]; rmp < &mproc[NR_PROCS]; rmp++) {
+	if (!(rmp->mp_flags & IN_USE))
+		continue;
+	if (!strcmp(rmp->mp_name, "ipc")) {
+		ipc_ep = rmp->mp_endpoint;
+		vm_notify_sig(ep, ipc_ep);
+
+		return;
+	}
+  }
 }

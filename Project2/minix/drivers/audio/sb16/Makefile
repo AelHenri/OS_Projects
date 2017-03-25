@@ -2,7 +2,4 @@
 PROG=	sb16
 SRCS=	sb16.c mixer.c
 
-DPADD+= ${LIBAUDIODRIVER} ${LIBCHARDRIVER} ${LIBSYS}
-LDADD+= -laudiodriver -lchardriver -lsys
-
 .include <minix.service.mk>

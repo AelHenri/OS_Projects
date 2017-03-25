@@ -125,7 +125,7 @@ int op;				/* special actions */
 	if (bp_dindir != NULL) MARKDIRTY(bp_dindir);
 	if (z1 == NO_ZONE) {
 		/* Release dbl indirect blk. */
-		put_block(bp_dindir);
+		put_block(bp_dindir, INDIRECT_BLOCK);
 		return(err_code);	/* couldn't create single ind */
 	}
   }
@@ -165,8 +165,8 @@ int op;				/* special actions */
 		wr_indir(bp, ex, new_zone);
 	}
 	/* z1 equals NO_ZONE only when we are freeing up the indirect block. */
-	if(z1 != NO_ZONE) MARKDIRTY(bp);
-	put_block(bp);
+	if(z1 == NO_ZONE) { MARKCLEAN(bp); } else { MARKDIRTY(bp); }
+	put_block(bp, INDIRECT_BLOCK);
   }
 
   /* If the single indirect block isn't there (or was just freed),
@@ -175,11 +175,12 @@ int op;				/* special actions */
    */
   if(z1 == NO_ZONE && !single && z2 != NO_ZONE &&
      empty_indir(bp_dindir, rip->i_sp)) {
+     	MARKCLEAN(bp_dindir);
 	free_zone(rip->i_dev, z2);
 	rip->i_zone[zones+1] = NO_ZONE;
   }
 
-  put_block(bp_dindir);			/* release double indirect blk */
+  put_block(bp_dindir, INDIRECT_BLOCK);	/* release double indirect blk */
 
   return(OK);
 }
@@ -200,7 +201,7 @@ zone_t zone;			/* zone to write */
   if(bp == NULL)
 	panic("wr_indir() on NULL");
 
-  sp = &superblock;
+  sp = get_super(lmfs_dev(bp));	/* need super block to find file sys type */
 
   /* write a zone into an indirect block */
   assert(sp->s_version == V3);
@@ -232,8 +233,8 @@ struct super_block *sb;		/* superblock of device block resides on */
  *===========================================================================*/
 void clear_zone(rip, pos, flag)
 register struct inode *rip;	/* inode to clear */
-off_t __unused pos;		/* points to block to clear */
-int __unused flag;		/* 1 if called by new_block, 0 otherwise */
+off_t pos;			/* points to block to clear */
+int flag;			/* 1 if called by new_block, 0 otherwise */
 {
 /* Zero a zone, possibly starting in the middle.  The parameter 'pos' gives
  * a byte in the first block to be zeroed.  Clearzone() is called from 
@@ -259,7 +260,8 @@ off_t position;			/* file pointer */
  * allocating a complete zone, and then returning the initial block.
  * On the other hand, the current zone may still have some unused blocks.
  */
-  struct buf *bp;
+
+  register struct buf *bp;
   block_t b, base_block;
   zone_t z;
   zone_t zone_size;
@@ -296,10 +298,8 @@ off_t position;			/* file pointer */
 	b = base_block + (block_t)((position % zone_size)/rip->i_sp->s_block_size);
   }
 
-  r = lmfs_get_block_ino(&bp, rip->i_dev, b, NO_READ, rip->i_num,
+  bp = lmfs_get_block_ino(rip->i_dev, b, NO_READ, rip->i_num,
   	rounddown(position, rip->i_sp->s_block_size));
-  if (r != OK)
-	panic("MFS: error getting block (%llu,%u): %d", rip->i_dev, b, r);
   zero_block(bp);
   return(bp);
 }
@@ -312,8 +312,9 @@ void zero_block(bp)
 register struct buf *bp;	/* pointer to buffer to zero */
 {
 /* Zero a block. */
+  ASSERT(lmfs_bytes(bp) > 0);
   ASSERT(bp->data);
-  memset(b_data(bp), 0, lmfs_fs_block_size());
+  memset(b_data(bp), 0, (size_t) lmfs_bytes(bp));
   MARKDIRTY(bp);
 }
 

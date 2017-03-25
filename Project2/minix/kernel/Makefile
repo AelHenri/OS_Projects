@@ -5,11 +5,6 @@ PROG=		kernel
 BINDIR=		/usr/sbin
 MAN=
 
-.if ${MACHINE_ARCH} == "earm" && ${MKLLVM:Uno} == "yes"
-# BJG - problems with optimisation of the kernel by llvm 
-DBG=-O0
-.endif
-
 .include "arch/${MACHINE_ARCH}/Makefile.inc"
 
 SRCS+=	clock.c cpulocals.c interrupt.c main.c proc.c system.c \
@@ -43,30 +38,26 @@ CPPFLAGS+= -I${NETBSDSRCDIR}/minix/include/arch/${MACHINE_ARCH}/include
 
 .include "system/Makefile.inc"
 
-.if ${MKPAE:Uno} != "no"
-CPPFLAGS+= -DPAE=1
-.endif
-
 .ifdef CONFIG_SMP
 SRCS+= smp.c
 .endif
 
 .if ${USE_WATCHDOG} != "no"
 SRCS+= watchdog.c
-CPPFLAGS+= -DUSE_WATCHDOG=1
+CPPFLAGS+= -DUSE_WATCHDOG
 .endif
 
 # Extra debugging routines
 .if ${USE_SYSDEBUG} != "no"
 SRCS+= 	debug.c
-CPPFLAGS+= -DUSE_SYSDEBUG=1
+CPPFLAGS+= -DUSE_SYSDEBUG
 .endif
 
 # These come last, so the profiling buffer is at the end of the data segment
 SRCS+= profile.c do_sprofile.c
 
 .if ${USE_LIVEUPDATE} != "no"
-CPPFLAGS+= -DUSE_UPDATE=1
+CPPFLAGS+= -DUSE_UPDATE
 .endif
 
 CLEANFILES+=extracted-errno.h extracted-mfield.h extracted-mtype.h procoffsets.h
@@ -86,13 +77,6 @@ extracted-mtype.h: extract-mtype.sh ../include/minix/com.h
 	cd ${.CURDIR} ; ${HOST_SH} extract-mtype.sh > ${.OBJDIR}/extracted-mtype.h
 
 .if ${USE_BITCODE:Uno} == "yes"
-# dcvmoole: this is a copy of the "${_P}: ${_P}.bcl.o" block from bsd.prog.mk,
-# with two changes: 1) ${OBJS} is added so as to link in objects that have not
-# been compiled with bitcode, and 2) we are directly loading the gold plugin
-# rather than through ${BITCODE_LD_FLAGS_2ND.kernel}, because LLVMgold will
-# not load libLTO when no LTO can be performed (due to the non- bitcode
-# objects), causing it to fail on unrecognized -disable-opt/-disable-inlining
-# options.  At least I think that's what's going on?  I'm no expert here..
 kernel: kernel.bcl.o
 	${_MKTARGET_LINK}
 	${_CCLINK.kernel} \
@@ -100,14 +84,8 @@ kernel: kernel.bcl.o
 		-L${DESTDIR}/usr/lib \
 		${_LDSTATIC.kernel} -o ${.TARGET} \
 		${.TARGET}.bcl.o ${OBJS} ${_PROGLDOPTS} ${_LDADD.kernel} \
-		-Wl,-plugin=${GOLD_PLUGIN} \
+		${BITCODE_LD_FLAGS_2ND.kernel} \
 		-Wl,--allow-multiple-definition
 .endif
-
-# Disable magic and ASR passes for the kernel.
-USE_MAGIC=no
-
-# Disable coverage profiling for the kernel, at least for now.
-MKCOVERAGE=no
 
 .include <minix.service.mk>

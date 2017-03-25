@@ -228,11 +228,11 @@ struct inode *rip;		/* used for preallocation */
 			rip->i_prealloc_count = EXT2_PREALLOC_BLOCKS - 1;
 
 			lmfs_markdirty(bp);
-			put_block(bp);
+			put_block(bp, MAP_BLOCK);
 
 			gd->free_blocks_count -= EXT2_PREALLOC_BLOCKS;
 			sp->s_free_blocks_count -= EXT2_PREALLOC_BLOCKS;
-			lmfs_change_blockusage(EXT2_PREALLOC_BLOCKS);
+			lmfs_blockschange(sp->s_dev, -EXT2_PREALLOC_BLOCKS);
 			group_descriptors_dirty = 1;
 			return block;
 		}
@@ -253,11 +253,11 @@ struct inode *rip;		/* used for preallocation */
 	check_block_number(block, sp, gd);
 
 	lmfs_markdirty(bp);
-	put_block(bp);
+	put_block(bp, MAP_BLOCK);
 
 	gd->free_blocks_count--;
 	sp->s_free_blocks_count--;
-	lmfs_change_blockusage(1);
+	lmfs_blockschange(sp->s_dev, -1);
 	group_descriptors_dirty = 1;
 
 	if (update_bsearch && block != -1 && block != NO_BLOCK) {
@@ -319,23 +319,16 @@ void free_block(struct super_block *sp, bit_t bit_returned)
 	panic("Tried to free unused block %d", bit_returned);
 
   lmfs_markdirty(bp);
-  put_block(bp);
+  put_block(bp, MAP_BLOCK);
 
   gd->free_blocks_count++;
   sp->s_free_blocks_count++;
-  lmfs_change_blockusage(-1);
+  lmfs_blockschange(sp->s_dev, 1);
 
   group_descriptors_dirty = 1;
 
   if (bit_returned < sp->s_bsearch)
 	sp->s_bsearch = bit_returned;
-
-  /* Also tell libminixfs, so that 1) if it has this block in its cache, it can
-   * mark it as clean, thus reducing useless writes, and 2) it can tell VM that
-   * any previous inode association is to be broken for this block, so that the
-   * block will not be mapped in erroneously later on.
-   */
-  lmfs_free_block(sp->s_dev, (block_t)bit_returned);
 }
 
 

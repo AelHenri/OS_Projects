@@ -5,9 +5,9 @@ SUBDIR+=	pfs
 
 .if ${MKIMAGEONLY} == "no"
 SUBDIR+=	ext2
-SUBDIR+=	isofs
+#LSC: Commented until the fixed version is ready to be merged in.
+#SUBDIR+=	iso9660fs
 SUBDIR+=	procfs
-SUBDIR+=	ptyfs
 
 .  if ${MACHINE_ARCH} == "i386"
 SUBDIR+=	hgfs

@@ -9,6 +9,7 @@
 #include <minix/com.h>
 #include "file.h"
 #include "lock.h"
+#include "scratchpad.h"
 #include "vnode.h"
 #include "vmnt.h"
 
@@ -57,26 +58,11 @@ int (* const call_vec[NR_VFS_CALLS])(void) = {
 	CALL(VFS_GETVFSSTAT)	= do_getvfsstat,	/* getvfsstat(2) */
 	CALL(VFS_STATVFS1)	= do_statvfs,		/* statvfs(2) */
 	CALL(VFS_FSTATVFS1)	= do_fstatvfs,		/* fstatvfs(2) */
-	CALL(VFS_GETRUSAGE)	= do_getrusage,		/* (obsolete) */
+	CALL(VFS_GETRUSAGE)	= do_getrusage,		/* getrusage(2) */
 	CALL(VFS_SVRCTL)	= do_svrctl,		/* svrctl(2) */
 	CALL(VFS_GCOV_FLUSH)	= do_gcov_flush,	/* gcov_flush(2) */
 	CALL(VFS_MAPDRIVER)	= do_mapdriver,		/* mapdriver(2) */
 	CALL(VFS_COPYFD)	= do_copyfd,		/* copyfd(2) */
 	CALL(VFS_CHECKPERMS)	= do_checkperms,	/* checkperms(2) */
 	CALL(VFS_GETSYSINFO)	= do_getsysinfo,	/* getsysinfo(2) */
-	CALL(VFS_SOCKET)	= do_socket,		/* socket(2) */
-	CALL(VFS_SOCKETPAIR)	= do_socketpair,	/* socketpair(2) */
-	CALL(VFS_BIND)		= do_bind,		/* bind(2) */
-	CALL(VFS_CONNECT)	= do_connect,		/* connect(2) */
-	CALL(VFS_LISTEN)	= do_listen,		/* listen(2) */
-	CALL(VFS_ACCEPT)	= do_accept,		/* accept(2) */
-	CALL(VFS_SENDTO)	= do_sendto,		/* sendto(2) */
-	CALL(VFS_SENDMSG)	= do_sockmsg,		/* sendmsg(2) */
-	CALL(VFS_RECVFROM)	= do_recvfrom,		/* recvfrom(2) */
-	CALL(VFS_RECVMSG)	= do_sockmsg,		/* recvmsg(2) */
-	CALL(VFS_SETSOCKOPT)	= do_setsockopt,	/* setsockopt(2) */
-	CALL(VFS_GETSOCKOPT)	= do_getsockopt,	/* getsockopt(2) */
-	CALL(VFS_GETSOCKNAME)	= do_getsockname,	/* getsockname(2) */
-	CALL(VFS_GETPEERNAME)	= do_getpeername,	/* getpeername(2) */
-	CALL(VFS_SHUTDOWN)	= do_shutdown,		/* shutdown(2) */
 };

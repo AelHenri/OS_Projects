@@ -1,5 +1,5 @@
 PROG=	intr
 BINDIR=	/bin
-MAN=	intr.8
+MAN=
 
 .include <bsd.prog.mk>

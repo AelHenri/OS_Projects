@@ -5,7 +5,6 @@
 
 #include <sys/select.h>
 #include <minix/safecopies.h>
-#include <minix/sef.h>
 
 /* This is the per-process information.  A slot is reserved for each potential
  * process. Thus NR_PROCS must be the same as in the kernel. It is not
@@ -27,29 +26,10 @@ EXTERN struct fproc {
   dev_t fp_tty;			/* major/minor of controlling tty */
 
   int fp_blocked_on;		/* what is it blocked on */
-  union ixfer_fp_u {		/* state per blocking type */
-	struct {			/* FP_BLOCKED_ON_PIPE */
-		int callnr;		/* user call: VFS_READ or VFS_WRITE */
-		int fd;			/* file descriptor for blocking call */
-		vir_bytes buf;		/* user buffer address */
-		size_t nbytes;		/* number of bytes left */
-		size_t cum_io;		/* partial (write) result byte count */
-	} u_pipe;
-	struct {			/* FP_BLOCKED_ON_POPEN */
-		int fd;			/* file descriptor for blocking call */
-	} u_popen;
-	struct {			/* FP_BLOCKED_ON_FLOCK */
-		int fd;			/* file descriptor for blocking call */
-		int cmd;		/* fcntl command, always F_SETLKW */
-		vir_bytes arg;		/* user address of flock structure */
-	} u_flock;
-	/* nothing for FP_BLOCKED_ON_SELECT for now */
-	struct {			/* FP_BLOCKED_ON_CDEV */
-		dev_t dev;		/* device number for blocking call */
-		endpoint_t endpt;	/* driver endpoint */
-		cp_grant_id_t grant;	/* data grant */
-	} u_cdev;
-  } fp_u;
+  int fp_block_callnr;		/* blocked call if rd/wr can't finish */
+  int  fp_cum_io_partial;	/* partial byte count if rd/wr can't finish */
+  endpoint_t fp_task;		/* which task is proc suspended on */
+  cp_grant_id_t fp_grant;	/* revoke this grant on unsuspend if > -1 */
 
   uid_t fp_realuid;		/* real user id */
   uid_t fp_effuid;		/* effective user id */
@@ -61,7 +41,7 @@ EXTERN struct fproc {
 
   mutex_t fp_lock;		/* mutex to lock fproc object */
   struct worker_thread *fp_worker;/* active worker thread, or NULL */
-  void (*fp_func)(void);		/* handler function for pending work */
+  void (*fp_func)();		/* handler function for pending work */
   message fp_msg;		/* pending or active message from process */
   message fp_pm_msg;		/* pending/active postponed PM request */
 
@@ -70,13 +50,10 @@ EXTERN struct fproc {
   int fp_vp_rdlocks;		/* number of read-only locks on vnodes */
   int fp_vmnt_rdlocks;		/* number of read-only locks on vmnts */
 #endif
-} fproc[NR_PROCS];
 
-/* Shortcuts for block state union substructures. */
-#define fp_pipe		fp_u.u_pipe
-#define fp_popen	fp_u.u_popen
-#define fp_flock	fp_u.u_flock
-#define fp_cdev		fp_u.u_cdev
+  vir_bytes text_size;		/* text segment size of current process */
+  vir_bytes data_size;		/* data segment size of current process */
+} fproc[NR_PROCS];
 
 /* fp_flags */
 #define FP_NOFLAGS	 0000
@@ -91,17 +68,5 @@ EXTERN struct fproc {
 #define NOT_REVIVING       0xC0FFEEE	/* process is not being revived */
 #define REVIVING           0xDEEAD	/* process is being revived from suspension */
 #define PID_FREE	   0	/* process slot free */
-
-/*
- * Upon request from the MIB service, this table is filled with a relatively
- * small subset of per-process fields, so that the MIB service can avoid
- * pulling in the entire fproc table.  Other fields may be added to this
- * structure as required by the MIB service.
- */
-EXTERN struct fproc_light {
-  dev_t fpl_tty;		/* copy of fproc.fp_tty */
-  int fpl_blocked_on;		/* copy of fproc.fp_blocked_on */
-  endpoint_t fpl_task;		/* copy of fproc.fp_task */
-} fproc_light[NR_PROCS];
 
 #endif /* __VFS_FPROC_H__ */

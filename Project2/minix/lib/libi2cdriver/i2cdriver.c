@@ -15,13 +15,13 @@ i2cdriver_announce(uint32_t bus)
 	int r;
 	char key[DS_MAX_KEYLEN];
 	char label[DS_MAX_KEYLEN];
-	const char *driver_prefix = "drv.i2c.";
+	char *driver_prefix = "drv.i2c.";
 
 	/* Callers are allowed to use ipc_sendrec to communicate with drivers.
 	 * For this reason, there may blocked callers when a driver restarts.
 	 * Ask the kernel to unblock them (if any).
 	 */
-	if ((r = sys_statectl(SYS_STATE_CLEAR_IPC_REFS, 0, 0)) != OK) {
+	if ((r = sys_statectl(SYS_STATE_CLEAR_IPC_REFS)) != OK) {
 		panic("chardriver_init: sys_statectl failed: %d", r);
 	}
 
@@ -83,7 +83,7 @@ i2cdriver_bus_endpoint(uint32_t bus)
 {
 	/* locate the driver for the i2c bus itself */
 	int r;
-	const char *label_prefix = "i2c.";
+	char *label_prefix = "i2c.";
 	char label[DS_MAX_KEYLEN];
 	endpoint_t bus_endpoint;
 
@@ -197,8 +197,7 @@ static int
 __i2creg_read(endpoint_t bus_endpoint, i2c_addr_t address, uint8_t raw,
     uint8_t reg, uint32_t * val, size_t vallen)
 {
-	uint32_t i;
-	int r;
+	int r, i;
 	minix_i2c_ioctl_exec_t ioctl_exec;
 
 	assert(val != NULL);

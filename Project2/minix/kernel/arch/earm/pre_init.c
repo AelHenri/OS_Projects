@@ -275,12 +275,12 @@ void get_parameters(kinfo_t *cbi, char *bootargs)
 	mb_set_param(cbi->param_buf, BOARDVARNAME,(char *)get_board_name(machine.board_id) , cbi);
 	
 
-	/* move user stack/data down to leave a gap to catch kernel
+	/* round user stack down to leave a gap to catch kernel
 	 * stack overflow; and to distinguish kernel and user addresses
 	 * at a glance (0xf.. vs 0xe..) 
 	 */
-	cbi->user_sp = USR_STACKTOP;
-	cbi->user_end = USR_DATATOP;
+	cbi->user_sp &= 0xF0000000;
+	cbi->user_end = cbi->user_sp;
 
 	/* kernel bytes without bootstrap code/data that is currently
 	 * still needed but will be freed after bootstrapping.
@@ -418,9 +418,9 @@ kinfo_t *pre_init(int argc, char **argv)
  * longer used and the "real" implementations are visible
  */
 void send_diag_sig(void) { }
-void minix_shutdown(int how) { arch_shutdown(how); }
+void minix_shutdown(minix_timer_t *t) { arch_shutdown(0); }
 void busy_delay_ms(int x) { }
 int raise(int n) { panic("raise(%d)\n", n); }
 int kern_phys_map_ptr( phys_bytes base_address, vir_bytes io_size, int vm_flags,
-struct kern_phys_map * priv, vir_bytes ptr) { return -1; };
+struct kern_phys_map * priv, vir_bytes ptr) {};
 struct machine machine; /* pre init stage machine */

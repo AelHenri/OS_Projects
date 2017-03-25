@@ -439,7 +439,7 @@ virtio_blk_device_intr(void)
 	thread_id_t *tid;
 
 	/* Multiple requests might have finished */
-	while (!virtio_from_queue(blk_dev, 0, (void**)&tid, NULL))
+	while (!virtio_from_queue(blk_dev, 0, (void**)&tid))
 		blockdriver_mt_wakeup(*tid);
 }
 
@@ -669,7 +669,7 @@ virtio_blk_probe(int skip)
 	}
 
 	/* Allocate memory for headers and status */
-	if ((r = virtio_blk_alloc_requests()) != OK) {
+	if ((r = virtio_blk_alloc_requests() != OK)) {
 		virtio_free_queues(blk_dev);
 		virtio_free_device(blk_dev);
 		return r;
@@ -731,10 +731,8 @@ static void
 sef_local_startup(void)
 {
 	sef_setcb_init_fresh(sef_cb_init_fresh);
+	sef_setcb_init_lu(sef_cb_init_fresh);
 	sef_setcb_signal_handler(sef_cb_signal_handler);
-
-	/* Enable suppor for live update. */
-	blockdriver_mt_support_lu();
 
 	sef_startup();
 }

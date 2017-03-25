@@ -57,7 +57,6 @@ poll(struct pollfd *p, nfds_t nfds, int timout)
 
 	highfd = -1;
 	for (i = 0; i < nfds; i++) {
-		p[i].revents = 0;
 		if (p[i].fd < 0)
 			continue;
 		if (p[i].fd >= FD_SETSIZE) {
@@ -67,12 +66,11 @@ poll(struct pollfd *p, nfds_t nfds, int timout)
 		if (p[i].fd > highfd)
 			highfd = p[i].fd;
 
-		if (p[i].events & (POLLIN|POLLRDNORM))
+		if (p[i].events & (POLLIN|POLLRDNORM|POLLRDBAND|POLLPRI))
 			FD_SET(p[i].fd, &rd);
 		if (p[i].events & (POLLOUT|POLLWRNORM|POLLWRBAND))
 			FD_SET(p[i].fd, &wr);
-		if (p[i].events & (POLLRDBAND|POLLPRI))
-			FD_SET(p[i].fd, &except);
+		FD_SET(p[i].fd, &except);
 	}
 
 	tv.tv_sec = timout / 1000;
@@ -85,16 +83,14 @@ poll(struct pollfd *p, nfds_t nfds, int timout)
 
 	rval = 0;
 	for (i = 0; i < nfds; i++) {
-		if (p[i].fd < 0)
-			continue;
+		p[i].revents = 0;
 		if (FD_ISSET(p[i].fd, &rd))
-			p[i].revents |= p[i].events & (POLLIN|POLLRDNORM);
+			p[i].revents |= POLLIN|POLLRDNORM|POLLRDBAND|POLLPRI;
 		if (FD_ISSET(p[i].fd, &wr))
-			p[i].revents |=
-			    p[i].events & (POLLOUT|POLLWRNORM|POLLWRBAND);
+			p[i].revents |= POLLOUT|POLLWRNORM|POLLWRBAND;
 		if (FD_ISSET(p[i].fd, &except))
-			p[i].revents |= p[i].events & (POLLRDBAND|POLLPRI);
-		/* XXX: POLLERR/POLLHUP/POLLNVAL? */
+			p[i].revents |= POLLERR;
+		/* XXX: POLLHUP/POLLNVAL? */
 		if (p[i].revents != 0)
 			rval++;
 	}

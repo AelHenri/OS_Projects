@@ -1,5 +1,5 @@
 PROG=	add_route
-MAN=	add_route.8
+MAN=
 
 LINKS+=	${BINDIR}/add_route ${BINDIR}/del_route
 

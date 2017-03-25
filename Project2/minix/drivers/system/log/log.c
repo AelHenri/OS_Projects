@@ -43,7 +43,7 @@ static struct chardriver log_dtab = {
 static void sef_local_startup(void);
 static int sef_cb_init_fresh(int type, sef_init_info_t *info);
 EXTERN int sef_cb_lu_prepare(int state);
-EXTERN int sef_cb_lu_state_isvalid(int state, int flags);
+EXTERN int sef_cb_lu_state_isvalid(int state);
 EXTERN void sef_cb_lu_state_dump(int state);
 static void sef_cb_signal_handler(int signo);
 
@@ -68,6 +68,8 @@ static void sef_local_startup()
 {
   /* Register init callbacks. */
   sef_setcb_init_fresh(sef_cb_init_fresh);
+  sef_setcb_init_lu(sef_cb_init_fresh);
+  sef_setcb_init_restart(sef_cb_init_fresh);
 
   /* Register live update callbacks. */
   sef_setcb_lu_prepare(sef_cb_lu_prepare);
@@ -100,9 +102,6 @@ static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *UNUSED(info))
   /* Register for diagnostics notifications. */
   sys_diagctl_register();
 
-  /* Announce we are up! */
-  chardriver_announce();
-
   return(OK);
 }
 
@@ -125,7 +124,7 @@ subwrite(struct logdevice *log, size_t size, endpoint_t endpt,
 	cp_grant_id_t grant, char *localbuf)
 {
   size_t count, offset;
-  int overflow, r, result;
+  int overflow, r;
   devminor_t minor;
   char *buf;
   message m;
@@ -133,7 +132,6 @@ subwrite(struct logdevice *log, size_t size, endpoint_t endpt,
   /* With a sufficiently large input size, we might wrap around the ring buffer
    * multiple times.
    */
-  result = 0;
   for (offset = 0; offset < size; offset += count) {
 	count = size - offset;
 
@@ -147,11 +145,8 @@ subwrite(struct logdevice *log, size_t size, endpoint_t endpt,
 	}
 	else {
 		if((r=sys_safecopyfrom(endpt, grant, offset,
-			(vir_bytes)buf, count)) != OK) {
-			/* return any partial success upon error */
-			result = (offset > 0) ? (int)offset : r;
-			break;
-		}
+			(vir_bytes)buf, count)) != OK)
+			break; /* do process partial write upon error */
 	}
 
 	LOGINC(log->log_write, count);
@@ -163,7 +158,7 @@ subwrite(struct logdevice *log, size_t size, endpoint_t endpt,
         	LOGINC(log->log_read, overflow);
         }
 
-	result += (int)count;
+	r = offset; /* this will be the return value upon success */
   }
 
   if (log->log_size > 0 && log->log_source != NONE) {
@@ -188,7 +183,7 @@ subwrite(struct logdevice *log, size_t size, endpoint_t endpt,
 	log->log_selected &= ~CDEV_OP_RD;
   }
 
-  return result;
+  return r;
 }
 
 /*===========================================================================*

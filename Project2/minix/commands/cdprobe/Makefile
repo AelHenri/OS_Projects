@@ -1,5 +1,5 @@
 PROG=	cdprobe
 CPPFLAGS+= -I${NETBSDSRCDIR}/minix/fs
-MAN=	cdprobe.8
+MAN=
 
 .include <bsd.prog.mk>

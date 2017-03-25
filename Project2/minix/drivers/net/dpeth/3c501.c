@@ -10,7 +10,7 @@
 */
 
 #include <minix/drivers.h>
-#include <minix/netdriver.h>
+#include <minix/com.h>
 #include <net/gen/ether.h>
 #include <net/gen/eth_io.h>
 #include "dp.h"
@@ -23,17 +23,17 @@ static unsigned char StationAddress[SA_ADDR_LEN] = {0, 0, 0, 0, 0, 0,};
 static buff_t *TxBuff = NULL;
 
 /*
-**  Name:	el1_getstats
+**  Name:	void el1_getstats(dpeth_t *dep)
 **  Function:	Reads statistics counters from board.
 **/
 static void el1_getstats(dpeth_t * dep)
 {
 
-  /* Nothing to do */
+  return;			/* Nothing to do */
 }
 
 /*
-**  Name:	el1_reset
+**  Name:	void el1_reset(dpeth_t *dep)
 **  Function:	Reset function specific for Etherlink hardware.
 */
 static void el1_reset(dpeth_t * dep)
@@ -49,6 +49,7 @@ static void el1_reset(dpeth_t * dep)
   for (ix = EL1_ADDRESS; ix < SA_ADDR_LEN; ix += 1)
 	outb_el1(dep, ix, StationAddress[ix]);
 
+  lock();
   /* Enable DMA/Interrupt, gain control of Buffer */
   outb_el1(dep, EL1_CSR, ECSR_RIDE | ECSR_SYS);
   /* Clear RX packet area */
@@ -59,19 +60,22 @@ static void el1_reset(dpeth_t * dep)
   inb_el1(dep, EL1_RECV);
   inb_el1(dep, EL1_XMIT);
   dep->de_flags &= NOT(DEF_XMIT_BUSY);
+  unlock();
+  return;			/* Done */
 }
 
 /*
-**  Name:	el1_dumpstats
+**  Name:	void el1_dumpstats(dpeth_t *dep, int port, vir_bytes size)
 **  Function:	Dumps counter on screen (support for console display).
 */
 static void el1_dumpstats(dpeth_t * UNUSED(dep))
 {
 
+  return;
 }
 
 /*
-**  Name:	el1_mode_init
+**  Name:	void el1_mode_init(dpeth_t *dep)
 **  Function:	Initializes receicer mode
 */
 static void el1_mode_init(dpeth_t * dep)
@@ -91,93 +95,125 @@ static void el1_mode_init(dpeth_t * dep)
   }
   outb_el1(dep, EL1_RECV, dep->de_recv_mode);
   inb_el1(dep, EL1_RECV);
+  return;
 }
 
 /*
-**  Name:	el1_recv
+**  Name:	void el1_recv(dpeth_t *dep, int from, int size)
 **  Function:	Receive function.  Called from interrupt handler to
 **  		unload recv. buffer or from main (packet to client)
 */
-static ssize_t el1_recv(dpeth_t *dep, struct netdriver_data *data, size_t max)
+static void el1_recv(dpeth_t * dep, int from, int size)
 {
   buff_t *rxptr;
-  size_t size;
 
-  if ((rxptr = dep->de_recvq_head) == NULL)
-	return SUSPEND;
+  while ((dep->de_flags & DEF_READING) && (rxptr = dep->de_recvq_head)) {
 
-  /* Remove buffer from queue and free buffer */
-  if (dep->de_recvq_tail == dep->de_recvq_head)
-	dep->de_recvq_head = dep->de_recvq_tail = NULL;
-  else
-	dep->de_recvq_head = rxptr->next;
+	/* Remove buffer from queue and free buffer */
+	lock();
+	if (dep->de_recvq_tail == dep->de_recvq_head)
+		dep->de_recvq_head = dep->de_recvq_tail = NULL;
+	else
+		dep->de_recvq_head = rxptr->next;
+	unlock();
 
-  /* Copy buffer to user area */
-  size = MIN(rxptr->size, max);
+	/* Copy buffer to user area */
+	mem2user(dep, rxptr);
 
-  netdriver_copyout(data, 0, rxptr->buffer, size);
+	/* Reply information */
+	dep->de_read_s = rxptr->size;
+	dep->de_flags |= DEF_ACK_RECV;
+	dep->de_flags &= NOT(DEF_READING);
 
-  /* Return buffer to the idle pool */
-  free_buff(dep, rxptr);
-
-  return size;
+	/* Return buffer to the idle pool */
+	free_buff(dep, rxptr);
+  }
+  return;
 }
 
 /*
-**  Name:	el1_send
-**  Function:	Send function.
+**  Name:	void el1_send(dpeth_t *dep, int from_int, int pktsize)
+**  Function:	Send function.  Called from main to transit a packet or
+**  		from interrupt handler when a new packet was queued.
 */
-static int el1_send(dpeth_t *dep, struct netdriver_data *data, size_t size)
+static void el1_send(dpeth_t * dep, int from_int, int pktsize)
 {
   buff_t *txbuff;
   clock_t now;
 
-  if (dep->de_flags & DEF_XMIT_BUSY) {
-	now = getticks();
+  if (from_int == FALSE) {
+
+	if ((txbuff = alloc_buff(dep, pktsize + sizeof(buff_t))) != NULL) {
+
+		/*  Fill transmit buffer from user area */
+		txbuff->next = NULL;
+		txbuff->size = pktsize;
+		txbuff->client = dep->de_client;
+		user2mem(dep, txbuff);
+	} else
+		panic("out of memory for Tx");
+
+  } else if ((txbuff = dep->de_xmitq_head) != NULL) {
+
+	/* Get first packet in queue */
+	lock();
+	if (dep->de_xmitq_tail == dep->de_xmitq_head)
+		dep->de_xmitq_head = dep->de_xmitq_tail = NULL;
+	else
+		dep->de_xmitq_head = txbuff->next;
+	unlock();
+	pktsize = txbuff->size;
+
+  } else
+	panic("should not be sending ");
+
+  if ((dep->de_flags & DEF_XMIT_BUSY)) {
+	if (from_int) panic("should not be sending ");
+	getticks(&now);
 	if ((now - dep->de_xmit_start) > 4) {
 		/* Transmitter timed out */
 		DEBUG(printf("3c501: transmitter timed out ... \n"));
 		dep->de_stat.ets_sendErr += 1;
 		dep->de_flags &= NOT(DEF_XMIT_BUSY);
-		/* Try sending anyway. */
-	} else
-		return SUSPEND;
+		el1_reset(dep);
+	}
+
+	/* Queue packet */
+	lock();			/* Queue packet to receive queue */
+	if (dep->de_xmitq_head == NULL)
+		dep->de_xmitq_head = txbuff;
+	else
+		dep->de_xmitq_tail->next = txbuff;
+	dep->de_xmitq_tail = txbuff;
+	unlock();
+  } else {
+	/* Save for retransmission */
+	TxBuff = txbuff;
+	dep->de_flags |= (DEF_XMIT_BUSY | DEF_ACK_SEND);
+
+	/* Setup board for packet loading */
+	lock();			/* Buffer to processor */
+	outb_el1(dep, EL1_CSR, ECSR_RIDE | ECSR_SYS);
+	inb_el1(dep, EL1_RECV);	/* Clears any spurious interrupt */
+	inb_el1(dep, EL1_XMIT);
+	outw_el1(dep, EL1_RECVPTR, 0);	/* Clears RX packet area */
+
+	/* Loads packet */
+	outw_el1(dep, EL1_XMITPTR, (EL1_BFRSIZ - pktsize));
+	outsb(dep->de_data_port, SELF, txbuff->buffer, pktsize);
+	/* Starts transmitter */
+	outw_el1(dep, EL1_XMITPTR, (EL1_BFRSIZ - pktsize));
+	outb_el1(dep, EL1_CSR, ECSR_RIDE | ECSR_XMIT);	/* There it goes... */
+	unlock();
+
+	getticks(&dep->de_xmit_start);
+	dep->de_flags &= NOT(DEF_SENDING);
   }
-
-  /* Since we may have to retransmit, we need a local copy. */
-  if ((txbuff = alloc_buff(dep, size + sizeof(buff_t))) == NULL)
-	panic("out of memory");
-
-  /* Fill transmit buffer from user area */
-  txbuff->next = NULL;
-  txbuff->size = size;
-
-  netdriver_copyin(data, 0, txbuff->buffer, size);
-
-  /* Save for retransmission */
-  TxBuff = txbuff;
-  dep->de_flags |= DEF_XMIT_BUSY;
-
-  /* Setup board for packet loading */
-  outb_el1(dep, EL1_CSR, ECSR_RIDE | ECSR_SYS);
-  inb_el1(dep, EL1_RECV);	/* Clears any spurious interrupt */
-  inb_el1(dep, EL1_XMIT);
-  outw_el1(dep, EL1_RECVPTR, 0);	/* Clears RX packet area */
-
-  /* Loads packet */
-  outw_el1(dep, EL1_XMITPTR, (EL1_BFRSIZ - size));
-  outsb(dep->de_data_port, txbuff->buffer, size);
-  /* Starts transmitter */
-  outw_el1(dep, EL1_XMITPTR, (EL1_BFRSIZ - size));
-  outb_el1(dep, EL1_CSR, ECSR_RIDE | ECSR_XMIT);	/* There it goes... */
-
-  dep->de_xmit_start = getticks();
-
-  return OK;
+  return;
 }
 
 /*
-**  Name:	el1_stop
+**  Name:	void el1_stop(dpeth_t *dep)
 **  Function:	Stops board and disable interrupts.
 */
 static void el1_stop(dpeth_t * dep)
@@ -189,10 +225,11 @@ static void el1_stop(dpeth_t * dep)
 	outb_el1(dep, EL1_CSR, ECSR_RESET);
   outb_el1(dep, EL1_CSR, ECSR_SYS);
   sys_irqdisable(&dep->de_hook);	/* Disable interrupt */
+  return;
 }
 
 /*
-**  Name:	el1_interrupt
+**  Name:	void el1_interrupt(dpeth_t *dep)
 **  Function:	Interrupt handler.  Acknwledges transmit interrupts
 **  		or unloads receive buffer to memory queue.
 */
@@ -227,6 +264,7 @@ static void el1_interrupt(dpeth_t * dep)
 		}
 		DEBUG(printf("3c501: got xmit interrupt (0x%02X)\n", isr));
 		el1_reset(dep);
+
 	} else {
 		/** if (inw_el1(dep, EL1_XMITPTR) == EL1_BFRSIZ) **/
 		/* Packet transmitted successfully */
@@ -234,9 +272,12 @@ static void el1_interrupt(dpeth_t * dep)
 		dep->bytes_Tx += (long) (TxBuff->size);
 		free_buff(dep, TxBuff);
 		dep->de_flags &= NOT(DEF_XMIT_BUSY);
-		netdriver_send();
-		if (dep->de_flags & DEF_XMIT_BUSY)
-			return;
+		if ((dep->de_flags & DEF_SENDING) && dep->de_xmitq_head) {
+			/* Pending transmit request available in queue */
+			el1_send(dep, TRUE, 0);
+			if (dep->de_flags & (DEF_XMIT_BUSY | DEF_ACK_SEND))
+				return;
+		}
 	}
 
   } else if ((csr & (ECSR_RECV | ECSR_XMTBSY)) == (ECSR_RECV | ECSR_XMTBSY)) {
@@ -260,20 +301,21 @@ static void el1_interrupt(dpeth_t * dep)
 		/* Got a good packet. Read it from buffer */
 		outb_el1(dep, EL1_CSR, ECSR_RIDE | ECSR_SYS);
 		outw_el1(dep, EL1_XMITPTR, 0);
-		insb(dep->de_data_port, rxptr->buffer, pktsize);
+		insb(dep->de_data_port, SELF, rxptr->buffer, pktsize);
 		rxptr->next = NULL;
 		rxptr->size = pktsize;
 		dep->de_stat.ets_packetR += 1;
 		dep->bytes_Rx += (long) pktsize;
-		/* Queue packet to receive queue */
+		lock();		/* Queue packet to receive queue */
 		if (dep->de_recvq_head == NULL)
 			dep->de_recvq_head = rxptr;
 		else
 			dep->de_recvq_tail->next = rxptr;
 		dep->de_recvq_tail = rxptr;
+		unlock();
 
 		/* Reply to pending Receive requests, if any */
-		netdriver_recv();
+		el1_recv(dep, TRUE, 0);
 	}
   } else {			/* Nasty condition, should never happen */
 	DEBUG(
@@ -295,10 +337,11 @@ static void el1_interrupt(dpeth_t * dep)
   /* Be sure that interrupts are cleared */
   inb_el1(dep, EL1_RECV);
   inb_el1(dep, EL1_XMIT);
+  return;
 }
 
 /*
-**  Name:	el1_init
+**  Name:	void el1_init(dpeth_t *dep)
 **  Function:	Initalizes board hardware and driver data structures.
 */
 static void el1_init(dpeth_t * dep)
@@ -333,10 +376,12 @@ static void el1_init(dpeth_t * dep)
   dep->de_getstatsf = el1_getstats;
   dep->de_dumpstatsf = el1_dumpstats;
   dep->de_interruptf = el1_interrupt;
+
+  return;			/* Done */
 }
 
 /*
-**  Name:	el1_probe
+**  Name:	int el1_probe(dpeth_t *dep)
 **  Function:	Checks for presence of the board.
 */
 int el1_probe(dpeth_t * dep)
