@@ -14,7 +14,6 @@ void delete_message_list(t_message **list);
 void push_process(t_process **list, int pid);
 t_process *pop_process(t_process **list);
 int is_processs_empty(t_process **list);
-void delete_process(t_process *m);
 void delete_process_list(t_process **list);
 
 void push_topic(topic **list);
