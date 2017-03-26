@@ -1,42 +1,18 @@
 #include "structs.h"
 
 /*
-		STRUCTURES
-*/
-
-struct t_message {
-	char *data;
-	t_process *subscribers;
-	t_message *next;
-};
-
-struct t_process {
-	int pid;
-	t_process *next;
-};
-
-struct topic {
-	int t_id;
-	int nb_msg;
-	t_message *mlist;
-	t_process *subscribers;
-	t_process *publishers;
-	topic *next;
-};
-
-/*
 		MESSAGE FUNCTIONS
 */
 
 void push_message(t_message **list, char *data) {
 	t_message *new = (t_message*) malloc(sizeof(t_message));
-	//char *s = malloc(sizeof(data));
-	//strcpy(s, data);
-	new->data = data;
+	char *s = malloc(strlen(data)+1 * sizeof(char));
+	strcpy(s, data);
+	new->data = s;
 	new->subscribers = NULL;
 	new->next = *list;
 	*list = new;
-	//s = NULL;
+	s = NULL;
 }
 
 t_message *pop_message(t_message **list) {
@@ -79,20 +55,26 @@ void push_process(t_process **list, int pid) {
 }
 
 t_process *pop_process(t_process **list) {
-	if (is_processs_empty(list))
+	if (is_processes_empty(list))
 		return NULL;
 	t_process *first = (*list);
 	(*list) = (*list)->next;
 	return first;
 }
 
-int is_processs_empty(t_process **list) {
+int is_processes_empty(t_process **list) {
 	return (*list)==NULL;
+}
+
+void delete_process(t_process *p) {
+	free(p);
+	p = NULL;
 }
 
 void delete_process_list(t_process **list) {
 	while ((*list) != NULL) {
-		pop_process(list);
+		t_process *p = pop_process(list);
+		delete_process(p);
 	}
 }
 
@@ -127,9 +109,12 @@ int is_topics_empty(topic **list) {
 }
 
 void delete_topic(topic *t) {
-	delete_process_list(&(t->subscribers));
-	delete_process_list(&(t->publishers));
-	delete_message_list(&(t->mlist));
+	if (!is_processes_empty(&(t->subscribers)))
+		delete_process_list(&(t->subscribers));
+	if (!is_processes_empty(&(t->publishers)))
+		delete_process_list(&(t->publishers));
+	if (!is_messages_empty(&(t->mlist)))
+		delete_message_list(&(t->mlist));
 	t->subscribers = NULL;
 	t->publishers = NULL;
 	t->mlist = NULL;
