@@ -1,0 +1,14 @@
+//proto.h 
+
+int do_tinit(void);  // void
+int do_tdelete(void); //int interest_group
+
+int do_tcreate(void); // 
+
+int do_tlookup(void); // 
+
+int do_tsubscriber(void); // (int subscriber_id) and int interest group
+int do_tpublisher(void); // (int publisher_id) and int interest group
+
+int do_tretrieve(void); //int interet_group, (subscriber id)
+int do_tpublish(void);  //int interest_group, char *msg
