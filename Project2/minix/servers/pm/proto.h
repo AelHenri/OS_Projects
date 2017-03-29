@@ -46,7 +46,16 @@ int do_getepinfo(void);
 int do_svrctl(void);
 int do_getsetpriority(void);
 int do_getrusage(void);
+//Project 2 functions
 int do_coucou(void);
+int do_tinit(void); 
+int do_tcreate(void); 
+int do_tdelete(void); 
+int do_tlookup(void);  
+int do_tsubscriber(void); 
+int do_tpublisher(void); 
+int do_tretrieve(void); 
+int do_tpublish(void);  
 
 /* schedule.c */
 void sched_init(void);

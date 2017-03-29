@@ -59,5 +59,12 @@ int (* const call_vec[NR_PM_CALLS])(void) = {
 	CALL(PM_GETEPINFO)	= do_getepinfo,		/* getepinfo(2) */
 	CALL(PM_GETPROCNR)	= do_getprocnr,		/* getprocnr(2) */
 	CALL(PM_GETSYSINFO)	= do_getsysinfo,		/* getsysinfo(2) */
-	CALL(PM_COUCOU) = do_coucou
+	CALL(PM_COUCOU) = do_coucou,
+	CALL(PM_TINIT) = do_tinit, 
+	CALL(PM_TCREATE) = do_tcreate, 
+	CALL(PM_TLOOKUP) = do_tlookup, 
+	CALL(PM_TSUBSRIBER) = do_tsubscriber, 
+	CALL(PM_TPUBLISHER) = do_tpublisher, 
+	CALL(PM_TRETRIEVE) = do_tretrieve, 
+	CALL(PM_TPUBLISH) = do_tpublish 
 };
