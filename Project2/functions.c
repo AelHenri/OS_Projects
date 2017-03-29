@@ -1,134 +1,26 @@
+#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include "structs.h"
 
-/*
-		MESSAGE FUNCTIONS
-*/
+#define MAX_NB_PUBLISHER 10
+#define MAX_NB_SUBSCRIBER 10 
+#define MAX_NB_MESSAGES 5 
+#define MAX_CHAR 1024
+#define MAX_NB_TOPICS 10
 
-void push_message(t_message **list, char *data) {
-	t_message *new = (t_message*) malloc(sizeof(t_message));
-	char *s = malloc(strlen(data)+1 * sizeof(char));
-	strcpy(s, data);
-	new->data = s;
-	new->subscribers = NULL;
-	new->next = *list;
-	*list = new;
-	s = NULL;
-}
+#define SUCCESS 1
+#define TOPIC_DUPLICATED 2
+#define TOPIC_MAX_REACHED 3
+#define TOPIC_NOT_FOUND 4
+#define PUPLISHER_DUPLICATED 5
+#define SUBSCRIBER_DUPLICATED 6
+#define MSG_LEN_OVERFLOW 7
+#define NOT_SUBSRCRIBER_TOPIC 8
 
-t_message *pop_message(t_message **list) {
-	if (is_messages_empty(list))
-		return NULL;
-	t_message *first = (*list);
-	(*list) = (*list)->next;
-	return first;
-}
+topic  *topics_list; //max size is MAX_NB_TOPICS
+int nb_topics;
 
-int is_messages_empty(t_message **list) {
-	return (*list)==NULL;
-}
-
-void delete_message(t_message *m) {
-	delete_process_list(&(m->subscribers));
-	m->subscribers = NULL;
-	free(m->data);
-	m->data = NULL;
-	free(m);
-	m = NULL;
-}
-
-void delete_message_list(t_message **list) {
-	while ((*list) != NULL) {
-		t_message *e = pop_message(list);
-		delete_message(e);
-	}
-}
-
-/*
-		PROCESS FUNCTIONS
-*/
-
-void push_process(t_process **list, int pid) {
-	t_process *new = (t_process*) malloc(sizeof(t_process));
-	new->pid = pid;
-	new->next = *list;
-	*list = new;
-}
-
-t_process *pop_process(t_process **list) {
-	if (is_processes_empty(list))
-		return NULL;
-	t_process *first = (*list);
-	(*list) = (*list)->next;
-	return first;
-}
-
-int is_processes_empty(t_process **list) {
-	return (*list)==NULL;
-}
-
-void delete_process(t_process *p) {
-	free(p);
-	p = NULL;
-}
-
-void delete_process_list(t_process **list) {
-	while ((*list) != NULL) {
-		t_process *p = pop_process(list);
-		delete_process(p);
-	}
-}
-
-/*
-		TOPIC FUNCTIONS
-*/
-
-void push_topic(topic **list, int nb) {
-	topic *new = (topic*) malloc(sizeof(topic));
-	/*if (is_topics_empty(list))
-		new->t_id = 0;
-	else
-		new->t_id = (*list)->t_id + 1;*/
-	new->t_id = nb;
-	new->nb_msg = 0;
-	new->mlist = NULL;
-	new->subscribers = NULL;
-	new->publishers = NULL;
-	new->next = *list;
-	*list = new;
-}
-
-topic *pop_topic(topic **list) {
-	if (is_topics_empty(list))
-		return NULL;
-	topic *first = (*list);
-	(*list) = (*list)->next;
-	return first;
-}
-
-int is_topics_empty(topic **list) {
-	return (*list)==NULL;
-}
-
-void delete_topic(topic *t) {
-	if (!is_processes_empty(&(t->subscribers)))
-		delete_process_list(&(t->subscribers));
-	if (!is_processes_empty(&(t->publishers)))
-		delete_process_list(&(t->publishers));
-	if (!is_messages_empty(&(t->mlist)))
-		delete_message_list(&(t->mlist));
-	t->subscribers = NULL;
-	t->publishers = NULL;
-	t->mlist = NULL;
-	free(t);
-	t = NULL;
-}
-
-void delete_topic_list(topic **list) {
-	while ((*list) != NULL) {
-		topic *e = pop_topic(list);
-		delete_topic(e);
-	}
-}	
 
 
 void topic_init(){
@@ -140,7 +32,7 @@ void topic_init(){
 int lookup_topics(int topics_id[]){
 	int i =0;
 	for(i = 0; i < nb_topics ; i++){
-		topics_id[i] = topics_list[i].t_id;
+		topics_id = topics_list[i].t_id;
 	}
 	return SUCCESS;
 }
@@ -155,7 +47,7 @@ int add_topic(int topic_id){
 	if(nb_topics == MAX_NB_TOPICS){
 		return TOPIC_MAX_REACHED;
 	}
-	push_topic(&(topics_list), topic_id);
+	push_topic(topics_list, topic_id);
 	nb_topics++;
 	return SUCCESS;
 }
@@ -194,7 +86,7 @@ int add_publisher_to_topic(int topic_id, int publisher_id){
 	int p_id = get_process_index(topics_list[index].publishers, publisher_id);
 	if(p_id != -1)
 		return PUPLISHER_DUPLICATED;
-	push_process(&(topics_list[index].publishers), publisher_id);
+	push_process(topics_list[index].subscribers, publisher_id);
 	return SUCCESS;
 }
 
@@ -208,7 +100,7 @@ int add_subscriber_to_topic(int topic_id, int subscriber_id){
 	int p_id = get_process_index(topics_list[index].subscribers, subscriber_id);
 	if(p_id != -1)
 		return SUBSCRIBER_DUPLICATED;
-	push_process(&(topics_list[index].subscribers), subscriber_id);
+	push_process(topics_list[index].subscribers, subscriber_id);
 	return SUCCESS;
 }
 
@@ -222,18 +114,16 @@ int publish_message(int topic_id, char msg[]){
 		return MSG_LEN_OVERFLOW;
 
 	if(topics_list[index].nb_msg <= 5){
-		pop_message(&(topics_list[index].mlist));
-		push_message(&(topics_list[index].mlist), msg);
+		pop_message(topics_list[index].mlist);
+		push_message(topics_list[index].mlist, msg);
 	}
 	else{
-		push_message(&(topics_list[index].mlist), msg);
+		push_message(topics_list[index].mlist, msg);
 		topics_list[index].nb_msg++;
 	}
-	return SUCCESS;
 }
 
 //TODO!!!NOT COMPLETE 
-
 int get_next_message(int topic_id, char *msg[], int subscriber_id){
 	int index = find_topic_index(topic_id);
 	if(index == -1){
@@ -243,7 +133,6 @@ int get_next_message(int topic_id, char *msg[], int subscriber_id){
 	int p_id = get_process_index(topics_list[index].subscribers, subscriber_id);
 	if(p_id != -1)
 		return NOT_SUBSRCRIBER_TOPIC;
-	return 1;
 }
 
 void print_topic(int topic_index){
@@ -264,4 +153,10 @@ void print_topic(int topic_index){
 		topics_list[topic_index].publishers = topics_list[topic_index].subscribers->next;
 	}
 }
-	
+
+
+
+
+
+
+
