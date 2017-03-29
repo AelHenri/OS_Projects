@@ -58,9 +58,18 @@
 #define PM_GETEPINFO		(PM_BASE + 45)
 #define PM_GETPROCNR		(PM_BASE + 46)
 #define PM_GETSYSINFO		(PM_BASE + 47)
-#define PM_COUCOU		(PM_BASE + 48)
 
-#define NR_PM_CALLS		49	/* highest number from base plus one */
+#define PM_TINIT        (PM_BASE + 48) 
+#define PM_TCREATE      (PM_BASE + 49) 
+#define PM_TLOOKUP      (PM_BASE + 50) 
+#define PM_TSUBSRIBER   (PM_BASE + 51) 
+#define PM_TPUBLISHER   (PM_BASE + 52) 
+#define PM_TRETRIEVE    (PM_BASE + 53) 
+#define PM_TPUBLISH     (PM_BASE + 54)
+
+#define PM_COUCOU		(PM_BASE + 55)
+
+#define NR_PM_CALLS		56	/* highest number from base plus one */
 
 /*===========================================================================*
  *				Calls to VFS				     *
