@@ -4,6 +4,11 @@
 
 int main(int argc, char const *argv[])
 {
-	coucou("coucou !");
+	printf("%d\n",sys_tinit());
+	/*
+	sys_tcreate(1);
+	int topics_id[20];
+	sys_tlookup(topics_id);
+	printf("%d\n", topics_id[1]);*/
 	return 0;
 }

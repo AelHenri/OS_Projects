@@ -17,7 +17,7 @@ int sys_tinit(void){
 int sys_tlookup(int topics_id[]){
     message m;   
 
-    m.m1_p1 = topics_id;   
+    m.m1_p1 = (char*) topics_id;   
 
     return ( _syscall(PM_PROC_NR, PM_TLOOKUP, &m) );
 }
@@ -25,7 +25,7 @@ int sys_tlookup(int topics_id[]){
 int sys_tcreate(int topic_id){
     message m;
 
-    m.m1_p1 = topic_id;   
+    m.m1_i1 = topic_id;   
 
     return ( _syscall(PM_PROC_NR, PM_TCREATE, &m) );
 }
@@ -34,7 +34,7 @@ int sys_tpublisher(int publisher_id, int topic_id){
     message m;  
 
     m.m1_i1 = publisher_id;
-    m.m1_p1 = topic_id;
+    m.m1_i2 = topic_id;
 
     return ( _syscall(PM_PROC_NR, PM_TPUBLISHER, &m) );
 }
@@ -43,7 +43,7 @@ int sys_tsubscriber(int subscriber_id, int topic_id){
     message m;
     
     m.m1_i1 = subscriber_id;
-    m.m1_p1 = topic_id;
+    m.m1_i2 = topic_id;
     
     return ( _syscall(PM_PROC_NR, PM_TSUBSRIBER, &m) );
 }
@@ -52,8 +52,8 @@ int sys_tpublish(int publisher_id, int topic_id, char *msg){
     message m;
     
     m.m1_i1 = publisher_id;
-    m.m1_p1 = topic_id;
-    m.m1_p2 = msg;
+    m.m1_i2 = topic_id;
+    m.m1_p1 = msg;
 
     return ( _syscall(PM_PROC_NR, PM_TPUBLISH, &m) );
 }
@@ -68,3 +68,4 @@ int sys_tretrieve(int topic_id, char *mesg, int subscriber_id){
     int sta = _syscall(PM_PROC_NR, PM_TRETRIEVE, &m);
     return sta;
 }
+*/
