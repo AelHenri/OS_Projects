@@ -64,8 +64,11 @@ t_process *pop_process(t_process **list) {
 
 void remove_process(t_process **list, t_process *proc) {
 	t_process *it = *list;
-	while ((it->next)->pid != proc->pid && it != NULL) {
+	while (it != NULL  && it->next != NULL && (it->next)->pid != proc->pid) {
 		it = it->next;
+	}
+	if (it->pid == (*list)->pid) {
+		*list = NULL;
 	}
 	if (it!=NULL) {
 		it->next = proc->next;
@@ -275,7 +278,6 @@ int retrieve_message(int topic_id, int subscriber_id, char buffer[]){
 	if(!is_process_in_list(msg->subscribers, subscriber_id))
 		return ALREADY_RETRIEVED;
 	strcpy(buffer, msg->data);
-
 	remove_process(&(msg->subscribers), find_process(&(msg->subscribers), subscriber_id));
 
 	if (is_processes_empty(&(msg->subscribers))) {

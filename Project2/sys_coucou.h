@@ -1,6 +1,7 @@
 #include <lib.h>    // provides _syscall and message
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 int coucou(char * msg);
 int sys_tinit(void);

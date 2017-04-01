@@ -26,6 +26,7 @@ int do_tlookup(void){
 	int res;
 	res = lookup_topics(topics);
 	sys_datacopy(PM_PROC_NR, (vir_bytes) topics, who_e, (vir_bytes)m_in.m1_p1, MAX_SIZE);
+	free(topics);
 	return nb_topics;
 }  
 
@@ -55,11 +56,13 @@ int do_tpublish(void){
 int do_tretrieve(void){
 	int topic_id = m_in.m1_i1;
 	int subscriber_id = m_in.m1_i2;
-	//char *msg = malloc(MAX_CHAR*sizeof(char));
-	char msg[MAX_CHAR];
-	int res = retrieve_message(topic_id, subscriber_id, msg) ;
+	char *msg = malloc(MAX_CHAR+1*sizeof(char));
+	int res = retrieve_message(topic_id, subscriber_id, msg);
+	if (res != 1)
+		return -res;
 	sys_datacopy(PM_PROC_NR, (vir_bytes) msg, who_e, (vir_bytes)m_in.m1_p1, MAX_CHAR);
-	int temp = (int)strlen(msg);
-	return temp;
+	int n = strlen(msg);
+	free(msg);
+	return n;
 } 
 

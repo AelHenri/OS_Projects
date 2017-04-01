@@ -26,7 +26,7 @@ int sys_tlookup(int topics_id[], int size){
     for (int i=0; i<nb_topics; i++) {
         topics_id[i] = buf[i];
     }
-
+    free(buf);
     return nb_topics;
 }
 
@@ -68,15 +68,17 @@ int sys_tpublish(int topic_id, int publisher_id, char *msg){
 
 int sys_tretrieve(int topic_id, int subscriber_id, char msg[], int size){
     message m;
-    char *buf = malloc((MAX_SIZE+1)*sizeof(char));
+    char *buf = malloc((size+1)*sizeof(char));
     m.m1_i1 = topic_id;   
     m.m1_i2 = subscriber_id;
     m.m1_p1 = buf;
     int len_char = _syscall(PM_PROC_NR, PM_TRETRIEVE, &m);
-    if(size > MAX_SIZE)
-        return -1;    
-    for(int i=0; i<len_char; i++){
-        msg[i] = buf[i];
-    }
+    if (len_char < 0)
+        return len_char;
+    if(size < len_char)
+        return -1;
+    printf("%s\n", buf);    
+    strcpy(msg, buf);
+    free(buf);
     return len_char;
 }

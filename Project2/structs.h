@@ -58,7 +58,7 @@ void delete_topic_list(topic **list);
 #define MAX_NB_PUBLISHER 10
 #define MAX_NB_SUBSCRIBER 10 
 #define MAX_NB_MESSAGES 5 
-#define MAX_CHAR 1024
+#define MAX_CHAR 512
 #define MAX_NB_TOPICS 10
 
 #define SUCCESS 1
@@ -72,8 +72,7 @@ void delete_topic_list(topic **list);
 #define MESSAGE_BUF_FULL 9
 #define NO_MESSAGE_FOUND 10
 #define ALREADY_RETRIEVED 11
-#define NOT_PUBLISHER_TOPIC 12 
-
+#define NOT_PUBLISHER_TOPIC 12
 
 topic  *topics_list; //max size is MAX_NB_TOPICS
 int nb_topics;
@@ -87,6 +86,6 @@ int add_topic(int topic_id);
 int add_publisher_to_topic(int topic_id, int publisher_id);
 int add_subscriber_to_topic(int topic_id, int subscriber_id);
 int publish_message(int topic_id, int publisher_id, char msg[]);
-int retrieve_message(int topic_id, char msg[], int subscriber_id);
+int retrieve_message(int topic_id, int subscriber_id, char msg[]);
 
 
