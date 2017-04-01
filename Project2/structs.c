@@ -62,6 +62,27 @@ t_process *pop_process(t_process **list) {
 	return first;
 }
 
+void remove_process(t_process **list, t_process *proc) {
+	t_process *it = *list;
+	while ((it->next)->pid != proc->pid && it != NULL) {
+		it = it->next;
+	}
+	if (it!=NULL) {
+		it->next = proc->next;
+	}
+}
+
+t_process *find_process(t_process **list, int pid) {
+	t_process* it = *list;
+	while (it != NULL) {
+		if (it->pid == pid)
+			return it;
+		it = it->next;
+	}
+	return it;
+}
+
+
 int is_processes_empty(t_process **list) {
 	return (*list)==NULL;
 }
@@ -105,6 +126,16 @@ topic *pop_topic(topic **list) {
 	return first;
 }
 
+topic* find_topic(topic **list, int topic_id) {
+	topic* it = *list;
+	while (it != NULL) {
+		if (it->t_id == topic_id)
+			return it;
+		it = it->next;
+	}
+	return it;
+}
+
 int is_topics_empty(topic **list) {
 	return (*list)==NULL;
 }
@@ -130,27 +161,35 @@ void delete_topic_list(topic **list) {
 	}
 }	
 
+/*
+		UTILITY FUNCTIONS
+*/
 
 void topic_init(){
-	topics_list = malloc(sizeof(topic)*MAX_NB_TOPICS);
+	topics_list = NULL;
 	nb_topics = 0;
 }
 
 
-int lookup_topics(int topics_id[]){
-	int i =0;
-	for(i = 0; i < nb_topics ; i++){
-		topics_id[i] = topics_list[i].t_id;
+int lookup_topics(char *topics_id){
+	topic *it = topics_list;
+	int i = 0;
+	while(it != NULL){
+		topics_id[i] = it->t_id;
+		it = it->next;
+		i++;
 	}
 	return SUCCESS;
 }
 
 int add_topic(int topic_id){
 	int i;
-	for(i=0; i < nb_topics; i++){
-		if (topics_list[i].t_id == topic_id){
+	topic *it = topics_list;
+	while(it != NULL){
+		if (it->t_id == topic_id){
 			return TOPIC_DUPLICATED;
 		}
+		it = it->next;
 	}
 	if(nb_topics == MAX_NB_TOPICS){
 		return TOPIC_MAX_REACHED;
@@ -160,108 +199,110 @@ int add_topic(int topic_id){
 	return SUCCESS;
 }
 
-int find_topic_index(int topic_id){
-	int i;
-	for(i = 0; i < nb_topics; i++){
-		if(topics_list[i].t_id == topic_id)
-			return i;
-	}
-	return -1;
-}
-
-int get_process_index(t_process *process, int p_id){
+int is_process_in_list(t_process *process, int p_id){
 	int flag = 0;
-	int i = 0;
-	while(process->next != NULL){
-		if(process->pid == p_id){
-			flag = 1;
-			break;
+	t_process *it = process;
+	while(it != NULL){
+		if(it->pid == p_id){
+			return 1;
 		}
-		i++;
-		process = process->next;
+		it = it->next;
 	}
-	if(!flag)
-		return -1;
-	return i;
+	return 0;
 }
 
 int add_publisher_to_topic(int topic_id, int publisher_id){
-	int index = find_topic_index(topic_id);
-	if(index == -1){
+	topic *top = find_topic(&(topics_list), topic_id);
+	if(top == NULL){
 		return TOPIC_NOT_FOUND;
 	}
 	//check if publisher is duplicated
-	int p_id = get_process_index(topics_list[index].publishers, publisher_id);
-	if(p_id != -1)
+	if(is_process_in_list(top->publishers, publisher_id) == 1)
 		return PUPLISHER_DUPLICATED;
-	push_process(&(topics_list[index].publishers), publisher_id);
+	push_process(&(top->publishers), publisher_id);
 	return SUCCESS;
 }
-
 
 int add_subscriber_to_topic(int topic_id, int subscriber_id){
-	int index = find_topic_index(topic_id);
-	if(index == -1){
+	topic *top = find_topic(&(topics_list), topic_id);
+	if(top == NULL){
 		return TOPIC_NOT_FOUND;
 	}
-	//check if subsriber is duplicated
-	int p_id = get_process_index(topics_list[index].subscribers, subscriber_id);
-	if(p_id != -1)
+	//check if subscriber is duplicated
+	if(is_process_in_list(top->subscribers, subscriber_id) == 1)
 		return SUBSCRIBER_DUPLICATED;
-	push_process(&(topics_list[index].subscribers), subscriber_id);
+	push_process(&(top->subscribers), subscriber_id);
 	return SUCCESS;
 }
 
-int publish_message(int topic_id, char msg[]){
-	int index = find_topic_index(topic_id);
-	if(index == -1){
+int publish_message(int topic_id, int publisher_id, char msg[]){
+	topic *top = find_topic(&(topics_list), topic_id);
+	if(top == NULL){
 		return TOPIC_NOT_FOUND;
 	}
-
+	if(!is_process_in_list(top->publishers, publisher_id)){
+		return NOT_PUBLISHER_TOPIC;
+	}
 	if(strlen(msg) > MAX_CHAR)
 		return MSG_LEN_OVERFLOW;
 
-	if(topics_list[index].nb_msg <= 5){
-		pop_message(&(topics_list[index].mlist));
-		push_message(&(topics_list[index].mlist), msg);
+	if(top->nb_msg >= 5){
+		return MESSAGE_BUF_FULL;
 	}
 	else{
-		push_message(&(topics_list[index].mlist), msg);
-		topics_list[index].nb_msg++;
+		push_message(&(top->mlist), msg);
+		top->mlist->subscribers = top->subscribers;
+		top->nb_msg++;
 	}
 	return SUCCESS;
 }
 
 //TODO!!!NOT COMPLETE 
 
-int get_next_message(int topic_id, char *msg[], int subscriber_id){
-	int index = find_topic_index(topic_id);
-	if(index == -1){
+int retrieve_message(int topic_id, int subscriber_id, char buffer[]){
+	topic *top = find_topic(&(topics_list), topic_id);
+	if(top == NULL){
 		return TOPIC_NOT_FOUND;
 	}
 	//subscriber is valid ?	
-	int p_id = get_process_index(topics_list[index].subscribers, subscriber_id);
-	if(p_id != -1)
-		return NOT_SUBSRCRIBER_TOPIC;
+	if(!is_process_in_list(top->subscribers, subscriber_id))
+		return NOT_SUBSCRIBER_TOPIC;
+
+	t_message *msg = top->mlist;
+	if (is_messages_empty(&msg))
+		return NO_MESSAGE_FOUND;
+	if(!is_process_in_list(msg->subscribers, subscriber_id))
+		return ALREADY_RETRIEVED;
+	if (strlen(buffer) < strlen(msg->data))
+		return MSG_LEN_OVERFLOW;
+	strcpy(buffer, msg->data);
+
+	remove_process(&(msg->subscribers), find_process(&(msg->subscribers), subscriber_id));
+
+	if (is_processes_empty(&(msg->subscribers))) {
+		delete_message(pop_message(&(top->mlist)));
+	}
+
 	return 1;
 }
 
-void print_topic(int topic_index){
-	printf("The topic number is %d\n", topic_index);
-	printf("Message : \n");
-	while(topics_list[topic_index].mlist != NULL){
-		printf("%s\n", topics_list[topic_index].mlist->data);
-		topics_list[topic_index].mlist = topics_list[topic_index].mlist->next;
+void print_topic(topic *t){
+	printf("------------------------------------\n");
+	printf("The topic number is %d\n", t->t_id);
+	printf("Messages : \n");
+	while(t->mlist != NULL){
+		printf("%s\n", t->mlist->data);
+		t->mlist = t->mlist->next;
 	}
 	printf("Subscribers : \n" );
-	while(topics_list[topic_index].subscribers != NULL){
-		printf("%d\n", topics_list[topic_index].subscribers->pid);
-		topics_list[topic_index].subscribers = topics_list[topic_index].subscribers->next;
+	while(t->subscribers != NULL){
+		printf("%d\n", t->subscribers->pid);
+		t->subscribers = t->subscribers->next;
 	}
 	printf("Publishers : \n" );
-	while(topics_list[topic_index].publishers != NULL){
-		printf("%d\n", topics_list[topic_index].publishers->pid);
-		topics_list[topic_index].publishers = topics_list[topic_index].subscribers->next;
+	while(t->publishers != NULL){
+		printf("%d\n", t->publishers->pid);
+		t->publishers = t->publishers->next;
 	}
+	printf("------------------------------------\n");
 }
-	

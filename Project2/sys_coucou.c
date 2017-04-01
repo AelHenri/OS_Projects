@@ -56,22 +56,22 @@ int sys_tsubscriber(int subscriber_id, int topic_id){
     return ( _syscall(PM_PROC_NR, PM_TSUBSRIBER, &m) );
 }
 
-int sys_tpublish(int publisher_id, int topic_id, char *msg){
+int sys_tpublish(int topic_id, int publisher_id, char *msg){
     message m;
-    
-    m.m1_i1 = publisher_id;
-    m.m1_i2 = topic_id;
+
+    m.m1_i1 = topic_id;
+    m.m1_i2 = publisher_id;
     m.m1_p1 = msg;
 
     return ( _syscall(PM_PROC_NR, PM_TPUBLISH, &m) );
 }
 
-int sys_tretrieve(int topic_id, char *mesg, int subscriber_id){
+int sys_tretrieve(int topic_id, int subscriber_id, char *mesg){
     message m;
-    
+
+    m.m1_i2 = topic_id;   
     m.m1_i1 = subscriber_id;
-    m.m1_i2 = topic_id;
-    m.m1_p2 = mesg;
+    m.m1_p1 = mesg;
     
     int sta = _syscall(PM_PROC_NR, PM_TRETRIEVE, &m);
     return sta;
