@@ -269,12 +269,11 @@ int retrieve_message(int topic_id, int subscriber_id, char buffer[]){
 		return NOT_SUBSCRIBER_TOPIC;
 
 	t_message *msg = top->mlist;
+	
 	if (is_messages_empty(&msg))
 		return NO_MESSAGE_FOUND;
 	if(!is_process_in_list(msg->subscribers, subscriber_id))
 		return ALREADY_RETRIEVED;
-	if (strlen(buffer) < strlen(msg->data))
-		return MSG_LEN_OVERFLOW;
 	strcpy(buffer, msg->data);
 
 	remove_process(&(msg->subscribers), find_process(&(msg->subscribers), subscriber_id));
