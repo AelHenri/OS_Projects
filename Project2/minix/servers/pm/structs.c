@@ -202,7 +202,7 @@ int add_topic(int topic_id){
 int is_process_in_list(t_process *process, int p_id){
 	int flag = 0;
 	t_process *it = process;
-	while(it->next != NULL){
+	while(it != NULL){
 		if(it->pid == p_id){
 			return 1;
 		}
@@ -235,12 +235,14 @@ int add_subscriber_to_topic(int topic_id, int subscriber_id){
 	return SUCCESS;
 }
 
-int publish_message(int topic_id, char msg[]){
+int publish_message(int topic_id, int publisher_id, char msg[]){
 	topic *top = find_topic(&(topics_list), topic_id);
 	if(top == NULL){
 		return TOPIC_NOT_FOUND;
 	}
-
+	if(!is_process_in_list(top->publishers, publisher_id)){
+		return NOT_PUBLISHER_TOPIC;
+	}
 	if(strlen(msg) > MAX_CHAR)
 		return MSG_LEN_OVERFLOW;
 
@@ -257,7 +259,7 @@ int publish_message(int topic_id, char msg[]){
 
 //TODO!!!NOT COMPLETE 
 
-int retrieve_message(int topic_id, char buffer[], int subscriber_id){
+int retrieve_message(int topic_id, int subscriber_id, char buffer[]){
 	topic *top = find_topic(&(topics_list), topic_id);
 	if(top == NULL){
 		return TOPIC_NOT_FOUND;
@@ -284,22 +286,23 @@ int retrieve_message(int topic_id, char buffer[], int subscriber_id){
 	return 1;
 }
 
-void print_topic(int topic_index){
-	printf("The topic number is %d\n", topic_index);
-	printf("Message : \n");
-	while(topics_list[topic_index].mlist != NULL){
-		printf("%s\n", topics_list[topic_index].mlist->data);
-		topics_list[topic_index].mlist = topics_list[topic_index].mlist->next;
+void print_topic(topic *t){
+	printf("------------------------------------\n");
+	printf("The topic number is %d\n", t->t_id);
+	printf("Messages : \n");
+	while(t->mlist != NULL){
+		printf("%s\n", t->mlist->data);
+		t->mlist = t->mlist->next;
 	}
 	printf("Subscribers : \n" );
-	while(topics_list[topic_index].subscribers != NULL){
-		printf("%d\n", topics_list[topic_index].subscribers->pid);
-		topics_list[topic_index].subscribers = topics_list[topic_index].subscribers->next;
+	while(t->subscribers != NULL){
+		printf("%d\n", t->subscribers->pid);
+		t->subscribers = t->subscribers->next;
 	}
 	printf("Publishers : \n" );
-	while(topics_list[topic_index].publishers != NULL){
-		printf("%d\n", topics_list[topic_index].publishers->pid);
-		topics_list[topic_index].publishers = topics_list[topic_index].subscribers->next;
+	while(t->publishers != NULL){
+		printf("%d\n", t->publishers->pid);
+		t->publishers = t->publishers->next;
 	}
+	printf("------------------------------------\n");
 }
-	

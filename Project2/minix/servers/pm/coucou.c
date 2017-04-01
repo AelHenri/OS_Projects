@@ -45,13 +45,19 @@ int do_tpublisher(void){
 
 int do_tpublish(void){
 	int topic_id = m_in.m1_i1;
+	int publisher_id = m_in.m1_i2;
 	char msg[MAX_CHAR];
 	sys_datacopy(m_in.m_source, (vir_bytes) m_in.m1_p1, SELF, (vir_bytes)msg, MAX_CHAR);
-	int res = publish_message(topic_id, msg);
+	int res = publish_message(topic_id, publisher_id, msg);
 	return res;
 }
 
 int do_tretrieve(void){
-	return 1;
+	int topic_id = m_in.m1_i1;
+	int subscriber_id = m_in.m1_i2;
+	char msg[MAX_CHAR];
+	sys_datacopy(m_in.m_source, (vir_bytes) m_in.m1_p1, SELF, (vir_bytes)msg, MAX_CHAR);
+	int res = retrieve_message(topic_id, subscriber_id, msg) ;
+	return res;
 } 
 

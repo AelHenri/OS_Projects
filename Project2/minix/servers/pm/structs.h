@@ -72,20 +72,20 @@ void delete_topic_list(topic **list);
 #define MESSAGE_BUF_FULL 9
 #define NO_MESSAGE_FOUND 10
 #define ALREADY_RETRIEVED 11
-
+#define NOT_PUBLISHER_TOPIC 12
 
 topic  *topics_list; //max size is MAX_NB_TOPICS
 int nb_topics;
 
-int is_process_in_list(t_process *process, int p_id);;;
-void print_topic(int topic_index);
+int is_process_in_list(t_process *process, int p_id);
+void print_topic(topic *t);
 
 void topic_init();
 int lookup_topics(char *topics_id);
 int add_topic(int topic_id);
 int add_publisher_to_topic(int topic_id, int publisher_id);
 int add_subscriber_to_topic(int topic_id, int subscriber_id);
-int publish_message(int topic_id, char msg[]);
-int retrieve_message(int topic_id, char msg[], int subscriber_id);
+int publish_message(int topic_id, int publisher_id, char msg[]);
+int retrieve_message(int topic_id, int subscriber_id, char msg[]);
 
 
