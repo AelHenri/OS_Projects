@@ -41,11 +41,14 @@ void delete_message_list(t_message **list);
 
 void push_process(t_process **list, int pid);
 t_process *pop_process(t_process **list);
+void remove_process(t_process **list, t_process *proc);
+t_process *find_process(t_process **list, int pid);
 int is_processes_empty(t_process **list);
 void delete_process_list(t_process **list);
 
 void push_topic(topic **list, int nb);
 topic *pop_topic(topic **list);
+topic* find_topic(topic **list, int topic_id);
 int is_topics_empty(topic **list);
 void delete_topic(topic *m);
 void delete_topic_list(topic **list);
@@ -65,14 +68,16 @@ void delete_topic_list(topic **list);
 #define PUPLISHER_DUPLICATED 5
 #define SUBSCRIBER_DUPLICATED 6
 #define MSG_LEN_OVERFLOW 7
-#define NOT_SUBSRCRIBER_TOPIC 8
+#define NOT_SUBSCRIBER_TOPIC 8
+#define MESSAGE_BUF_FULL 9
+#define NO_MESSAGE_FOUND 10
+#define ALREADY_RETRIEVED 11
 
 
 topic  *topics_list; //max size is MAX_NB_TOPICS
 int nb_topics;
 
-int find_topic_index(int topic_id);
-int get_process_index(t_process *process, int p_id);;;
+int is_process_in_list(t_process *process, int p_id);;;
 void print_topic(int topic_index);
 
 void topic_init();
@@ -81,6 +86,6 @@ int add_topic(int topic_id);
 int add_publisher_to_topic(int topic_id, int publisher_id);
 int add_subscriber_to_topic(int topic_id, int subscriber_id);
 int publish_message(int topic_id, char msg[]);
-int get_next_message(int topic_id, char *msg[], int subscriber_id);
+int retrieve_message(int topic_id, char msg[], int subscriber_id);
 
 
