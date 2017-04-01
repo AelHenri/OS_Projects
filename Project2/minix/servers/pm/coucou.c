@@ -22,11 +22,15 @@ int do_tcreate(void){
 }
 
 int do_tlookup(void){
-	int topics[MAX_NB_TOPICS];
-	int res = lookup_topics(topics);
-	if(res == 1){
-		sys_datacopy(m_in.m_source, (vir_bytes) m_in.m1_p1, SELF, (vir_bytes)topics, MAX_SIZE);
-	}
+	char *topics = malloc(nb_topics*sizeof(char));
+	int res;
+	res = lookup_topics(topics);
+	for (int i=0; i<nb_topics; i++)
+		printf("%d\n", topics[i]);
+	
+	
+	m_in.m1_i1 = nb_topics;
+	sys_datacopy(SELF, (vir_bytes) topics, who_e, (vir_bytes)m_in.m1_p1, MAX_SIZE);
 	return res;
 }  
 

@@ -132,25 +132,30 @@ void delete_topic_list(topic **list) {
 
 
 void topic_init(){
-	topics_list = malloc(sizeof(topic)*MAX_NB_TOPICS);
+	topics_list = NULL;
 	nb_topics = 0;
 }
 
 
-int lookup_topics(int topics_id[]){
-	int i =0;
-	for(i = 0; i < nb_topics ; i++){
-		topics_id[i] = topics_list[i].t_id;
+int lookup_topics(char *topics_id){
+	topic *it = topics_list;
+	int i = 0;
+	while(it != NULL){
+		topics_id[i] = it->t_id;
+		it = it->next;
+		i++;
 	}
 	return SUCCESS;
 }
 
 int add_topic(int topic_id){
 	int i;
-	for(i=0; i < nb_topics; i++){
-		if (topics_list[i].t_id == topic_id){
+	topic *it = topics_list;
+	while(it != NULL){
+		if (it->t_id == topic_id){
 			return TOPIC_DUPLICATED;
 		}
+		it = it->next;
 	}
 	if(nb_topics == MAX_NB_TOPICS){
 		return TOPIC_MAX_REACHED;

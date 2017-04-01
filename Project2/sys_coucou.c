@@ -15,11 +15,17 @@ int sys_tinit(void){
 }
 
 int sys_tlookup(int topics_id[]){
-    message m;   
+    message m;
+    m.m1_i1 = 1;
+    m.m1_p1 = malloc(20*sizeof(char));
+    int syscall = _syscall(PM_PROC_NR, PM_TLOOKUP, &m);
+    printf("%d\n", m.m1_i1);
+    for (int i=0; i<1; i++) {
+        topics_id[i] = m.m1_p1[i];
+        //printf("%d\n", topics_id[i]);
+    }
 
-    m.m1_p1 = (char*) topics_id;   
-
-    return ( _syscall(PM_PROC_NR, PM_TLOOKUP, &m) );
+    return syscall;
 }
 
 int sys_tcreate(int topic_id){

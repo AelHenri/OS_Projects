@@ -76,7 +76,7 @@ int get_process_index(t_process *process, int p_id);;;
 void print_topic(int topic_index);
 
 void topic_init();
-int lookup_topics(int topics_id[]);
+int lookup_topics(char *topics_id);
 int add_topic(int topic_id);
 int add_publisher_to_topic(int topic_id, int publisher_id);
 int add_subscriber_to_topic(int topic_id, int subscriber_id);

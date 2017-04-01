@@ -4,11 +4,13 @@
 
 int main(int argc, char const *argv[])
 {
-	printf("%d\n",sys_tinit());
-	/*
-	sys_tcreate(1);
 	int topics_id[20];
+	sys_tinit();
+	sys_tcreate(1);
+	sys_tcreate(2);
+	sys_tcreate(5);
+	sys_tcreate(6);
+
 	sys_tlookup(topics_id);
-	printf("%d\n", topics_id[1]);*/
 	return 0;
 }
