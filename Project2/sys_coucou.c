@@ -74,7 +74,7 @@ int sys_tretrieve(int topic_id, int subscriber_id, char msg[], int size){
     m.m1_p1 = buf;
     int len_char = _syscall(PM_PROC_NR, PM_TRETRIEVE, &m);
     if (len_char < 0)
-        return len_char;
+        return errno;
     if(size < len_char)
         return -1;
     printf("%s\n", buf);    
