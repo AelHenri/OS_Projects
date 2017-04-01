@@ -68,7 +68,7 @@ void remove_process(t_process **list, t_process *proc) {
 		it = it->next;
 	}
 	if (it->pid == (*list)->pid) {
-		*list = NULL;
+			pop_process(list);
 	}
 	if (it!=NULL) {
 		it->next = proc->next;
@@ -268,20 +268,23 @@ int retrieve_message(int topic_id, int subscriber_id, char buffer[]){
 		return TOPIC_NOT_FOUND;
 	}
 	//subscriber is valid ?	
-	if(!is_process_in_list(top->subscribers, subscriber_id))
+	if(!is_process_in_list(top->subscribers, subscriber_id)){
 		return NOT_SUBSCRIBER_TOPIC;
+	}
 
 	t_message *msg = top->mlist;
-	
-	if (is_messages_empty(&msg))
+	if (is_messages_empty(&msg)){
 		return NO_MESSAGE_FOUND;
-	if(!is_process_in_list(msg->subscribers, subscriber_id))
+	}
+	if(!is_process_in_list(msg->subscribers, subscriber_id)){
 		return ALREADY_RETRIEVED;
+	}
 	strcpy(buffer, msg->data);
 	remove_process(&(msg->subscribers), find_process(&(msg->subscribers), subscriber_id));
 
 	if (is_processes_empty(&(msg->subscribers))) {
 		delete_message(pop_message(&(top->mlist)));
+		top->nb_msg--;
 	}
 
 	return 1;

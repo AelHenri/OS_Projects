@@ -58,8 +58,10 @@ int do_tretrieve(void){
 	int subscriber_id = m_in.m1_i2;
 	char *msg = malloc(MAX_CHAR+1*sizeof(char));
 	int res = retrieve_message(topic_id, subscriber_id, msg);
-	if (res != 1)
+	if (res != 1){
+		int r = res * -1;
 		return -res;
+	}
 	sys_datacopy(PM_PROC_NR, (vir_bytes) msg, who_e, (vir_bytes)m_in.m1_p1, MAX_CHAR);
 	int n = strlen(msg);
 	free(msg);
