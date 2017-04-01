@@ -7,6 +7,7 @@ int main(int argc, char const *argv[])
 {	
 	int res;
 	int size = 20;
+	int buff_size = 100;
 	int topics_id[size];
 	sys_tinit();
 	sys_tcreate(1);
@@ -33,21 +34,22 @@ int main(int argc, char const *argv[])
 	res =sys_tsubscriber(getpid(), 0);
 	printf(" subscriber %d\n", res);
 	nb_topics = sys_tlookup(topics_id, size);
-	for (i = 0; i<nb_topics; i++) {
+/*	for (i = 0; i<nb_topics; i++) {
 		printf("after add subscriber existing%d\n", topics_id[i]);
 	}
+*/
 	res = sys_tpublish(5, getpid(), "coucou");
 	nb_topics = sys_tlookup(topics_id, size);
-	for (i = 0; i<nb_topics; i++) {
+/*	for (i = 0; i<nb_topics; i++) {
 		printf("after publish%d\n", topics_id[i]);
 	}
+*/
 	printf(" publish %d\n", res);
 	res = sys_tpublish(5, 6, "coucou");
-
 	printf(" publish %d\n", res);
-	char msg[10];
-	sys_tretrieve(5, getpid(), msg);
-
+	char msg[100];
+	res = sys_tretrieve(5, getpid(), msg, buff_size);
+	printf("retrieve %d\n", res);
 
 	return 0;
 }

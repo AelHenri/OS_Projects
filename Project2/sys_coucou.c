@@ -1,5 +1,5 @@
 #include "sys_coucou.h"
-#define MAX_SIZE 128
+#define MAX_SIZE 1024
 
 int coucou(char *msg) {
     message m;  // Minix uses message to pass parameters to a system call
@@ -17,7 +17,7 @@ int sys_tinit(void){
 int sys_tlookup(int topics_id[], int size){
     message m;
     m.m1_i1 = 1;
-    char* buf = malloc(size*sizeof(char));
+    char* buf = malloc((size+1)*sizeof(char));
 
     m.m1_p1 = buf;
     int nb_topics = _syscall(PM_PROC_NR, PM_TLOOKUP, &m);
@@ -66,13 +66,17 @@ int sys_tpublish(int topic_id, int publisher_id, char *msg){
     return ( _syscall(PM_PROC_NR, PM_TPUBLISH, &m) );
 }
 
-int sys_tretrieve(int topic_id, int subscriber_id, char *mesg){
+int sys_tretrieve(int topic_id, int subscriber_id, char msg[], int size){
     message m;
-
-    m.m1_i2 = topic_id;   
-    m.m1_i1 = subscriber_id;
-    m.m1_p1 = mesg;
-    
-    int sta = _syscall(PM_PROC_NR, PM_TRETRIEVE, &m);
-    return sta;
+    char *buf = malloc((MAX_SIZE+1)*sizeof(char));
+    m.m1_i1 = topic_id;   
+    m.m1_i2 = subscriber_id;
+    m.m1_p1 = buf;
+    int len_char = _syscall(PM_PROC_NR, PM_TRETRIEVE, &m);
+    if(size > MAX_SIZE)
+        return -1;    
+    for(int i=0; i<len_char; i++){
+        msg[i] = buf[i];
+    }
+    return len_char;
 }
