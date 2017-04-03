@@ -1,9 +1,11 @@
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
 #include <unistd.h>
-
+#include <errno.h>
+#include <signal.h>
 /*
 		STRUCTURES
 */
@@ -44,6 +46,7 @@ t_process *pop_process(t_process **list);
 void remove_process(t_process **list, t_process *proc);
 t_process *find_process(t_process **list, int pid);
 int is_processes_empty(t_process **list);
+void delete_process(t_process *p);
 void delete_process_list(t_process **list);
 
 void push_topic(topic **list, int nb);
@@ -58,7 +61,7 @@ void delete_topic_list(topic **list);
 #define MAX_NB_PUBLISHER 10
 #define MAX_NB_SUBSCRIBER 10 
 #define MAX_NB_MESSAGES 5 
-#define MAX_CHAR 1024
+#define MAX_CHAR 512
 #define MAX_NB_TOPICS 10
 
 #define SUCCESS 1
@@ -76,6 +79,7 @@ void delete_topic_list(topic **list);
 
 topic  *topics_list; //max size is MAX_NB_TOPICS
 int nb_topics;
+int current_pid;
 
 int is_process_in_list(t_process *process, int p_id);
 void print_topic(topic *t);
@@ -87,5 +91,8 @@ int add_publisher_to_topic(int topic_id, int publisher_id);
 int add_subscriber_to_topic(int topic_id, int subscriber_id);
 int publish_message(int topic_id, int publisher_id, char msg[]);
 int retrieve_message(int topic_id, int subscriber_id, char msg[]);
+
+void remove_inactive_process(t_process **list);
+void check_for_processes(topic **t);
 
 

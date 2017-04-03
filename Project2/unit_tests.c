@@ -5,7 +5,7 @@ void unit_tlookup() {
 	int topics[MAX_SIZE];
 	sys_tinit();
 
-	printf("|---EMPTY LOOKUP...");
+	printf("|--EMPTY LOOKUP...");
 	int res = sys_tlookup(topics, MAX_SIZE);
 	assert(res == 0);
 	printf("...OK\n");
@@ -22,18 +22,18 @@ void unit_tcreate() {
 	sys_tinit();
 
 
-	printf("|---FIRST TOPIC CREATED...");
+	printf("|--FIRST TOPIC CREATED...");
 	res = sys_tcreate(0);
 	assert(res == SUCCESS);
 	printf("...OK\n");
 
-	printf("|---FIRST TOPIC PRESENT...");
+	printf("|--FIRST TOPIC PRESENT...");
 	size = sys_tlookup(topics, MAX_SIZE);
 	assert(size == 1);
 	assert(topics[0] == 0);
 	printf("...OK\n");
 
-	printf("|---SAME TOPIC CREATION ATTEMPT...");
+	printf("|--SAME TOPIC CREATION ATTEMPT...");
 	res = sys_tcreate(0);
 	assert(res == TOPIC_DUPLICATED);
 	size = sys_tlookup(topics, MAX_SIZE);
@@ -45,7 +45,7 @@ void unit_tcreate() {
 	assert(res == SUCCESS);
 	printf("...OK\n");
 
-	printf("|---BOTH TOPICS PRESENT...");
+	printf("|--BOTH TOPICS PRESENT...");
 	size = sys_tlookup(topics, MAX_SIZE);
 	assert(size == 2);
 	assert(topics[0] == 1);
@@ -228,7 +228,24 @@ void unit_all(){
 }
 
 int main(int argc, char const *argv[])
-{
-	unit_all();
+{	
+	if (argc == 2) {
+		if (strcmp(argv[1], "lookup")==0)
+			unit_tlookup();
+		else if (strcmp(argv[1], "create")==0)
+			unit_tcreate();
+		else if (strcmp(argv[1], "publisher")==0)
+			unit_tpublisher();
+		else if (strcmp(argv[1], "subscriber")==0)
+			unit_tsubscriber();
+		else if (strcmp(argv[1], "publish")==0)
+			unit_tpublish();
+		else if (strcmp(argv[1], "retrieve")==0)
+			unit_tretrieve();
+		else
+			unit_all();
+	}
+	else
+		unit_all();
 	return 0;
 }

@@ -76,8 +76,7 @@ int sys_tretrieve(int topic_id, int subscriber_id, char msg[], int size){
     if (len_char < 0)
         return errno;
     if(size < len_char)
-        return -1;
-    printf("%s\n", buf);    
+        return -1;   
     strcpy(msg, buf);
     free(buf);
     return len_char;

@@ -1,9 +1,11 @@
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
 #include <unistd.h>
-
+#include <errno.h>
+#include <signal.h>
 /*
 		STRUCTURES
 */
@@ -44,6 +46,7 @@ t_process *pop_process(t_process **list);
 void remove_process(t_process **list, t_process *proc);
 t_process *find_process(t_process **list, int pid);
 int is_processes_empty(t_process **list);
+void delete_process(t_process *p);
 void delete_process_list(t_process **list);
 
 void push_topic(topic **list, int nb);

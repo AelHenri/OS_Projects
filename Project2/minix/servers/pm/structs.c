@@ -257,6 +257,8 @@ int publish_message(int topic_id, int publisher_id, char msg[]){
 		top->mlist->subscribers = top->subscribers;
 		top->nb_msg++;
 	}
+
+	check_for_processes(&top);
 	return SUCCESS;
 }
 
@@ -287,7 +289,37 @@ int retrieve_message(int topic_id, int subscriber_id, char buffer[]){
 		top->nb_msg--;
 	}
 
+	check_for_processes(&top);
+
 	return 1;
+}
+
+void remove_inactive_process(t_process **list) {
+	t_process *it = *list;
+	t_process *tmp = NULL;
+	int ret = 0;
+	while(it != NULL) {
+		if (it->pid != current_pid)
+			ret = kill(it->pid, 0);
+		if (ret == -1 && errno == ESRCH) {
+			delete_process(pop_process(&it));
+			ret = 0;
+		}
+		else {
+			it = it->next;
+		}
+	}
+	it = NULL;
+}
+
+void check_for_processes(topic **t) {
+	remove_inactive_process(&((*t)->publishers));
+	remove_inactive_process(&((*t)->subscribers));
+	t_message *it = (*t)->mlist;
+	while (it != NULL) {
+		remove_inactive_process(&(it->subscribers));
+		it = it->next;
+	}
 }
 
 void print_topic(topic *t){
