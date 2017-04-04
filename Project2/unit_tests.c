@@ -200,21 +200,23 @@ void unit_tretrieve(){
 	buff[0] = '\0';
 	printf("|--ATTEMPT TO RETRIEVE MESSAGE AFTER RETRIEVING ALL EXISTING MESSAGES" );
 	res = sys_tretrieve(0, pid2, buff, 100);
-	assert(res == ALREADY_RETRIEVED);
+	assert(res == -ALREADY_RETRIEVED);
 	printf("...OK\n");	
 
 	buff[0] = '\0';
 	printf("|--ATTEMPT TO RETRIEVE MESSAGE FROM UNAUTHORIZED SUBSCRIBER");
 	res = sys_tretrieve(3, pid, buff, 100);
-	assert(res == NOT_SUBSCRIBER_TOPIC);
+	assert(res == -NOT_SUBSCRIBER_TOPIC);
 	printf("...OK\n");	
 
 	buff[0] = '\0';
 	printf("|--ATTEMPT TO RETRIEVE UNEXISTING MESSAGE " );
 	res = sys_tretrieve(1, pid, buff, 100);
-	assert(res == NO_MESSAGE_FOUND);
+	assert(res == -NO_MESSAGE_FOUND);
 	printf("...OK\n");	
 
+	printf("TOPIC RETRIEVE OK\n");
+	printf("\n"); 
 }
 
 void unit_all(){

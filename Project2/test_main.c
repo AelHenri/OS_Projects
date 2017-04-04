@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include "sys_coucou.h"
+#include "sys_topic.h"
 
 int main(int argc, char const *argv[])
 {	
@@ -50,6 +50,6 @@ int main(int argc, char const *argv[])
 	char msg[100];
 	res = sys_tretrieve(5, getpid(), msg, buff_size);
 	printf("retrieve %d\n", res);
-	
+	printf("%s\n", msg);
 	return 0;
 }

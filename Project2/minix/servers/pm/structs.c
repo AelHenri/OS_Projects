@@ -221,7 +221,7 @@ int add_publisher_to_topic(int topic_id, int publisher_id){
 	}
 	//check if publisher is duplicated
 	if(is_process_in_list(top->publishers, publisher_id) == 1)
-		return PUPLISHER_DUPLICATED;
+		return PUBLISHER_DUPLICATED;
 	push_process(&(top->publishers), publisher_id);
 	return SUCCESS;
 }
@@ -235,6 +235,13 @@ int add_subscriber_to_topic(int topic_id, int subscriber_id){
 	if(is_process_in_list(top->subscribers, subscriber_id) == 1)
 		return SUBSCRIBER_DUPLICATED;
 	push_process(&(top->subscribers), subscriber_id);
+
+	t_message *it = top->mlist;
+	while (it != NULL) {
+		push_process(&(it->subscribers), subscriber_id);
+		it = it->next;
+	}
+	it = NULL;
 	return SUCCESS;
 }
 
@@ -300,8 +307,8 @@ void remove_inactive_process(t_process **list) {
 	int ret = 0;
 	while(it != NULL) {
 		if (it->pid != current_pid)
-			ret = kill(it->pid, 0);
-		if (ret == -1 && errno == ESRCH) {
+			ret = check_sig(it->pid, 0, 0);
+		if (ret == ESRCH) {
 			delete_process(pop_process(&it));
 			ret = 0;
 		}

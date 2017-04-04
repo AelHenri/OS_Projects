@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <signal.h>
+#include "pm.h"
 /*
 		STRUCTURES
 */
@@ -68,7 +69,7 @@ void delete_topic_list(topic **list);
 #define TOPIC_DUPLICATED 2
 #define TOPIC_MAX_REACHED 3
 #define TOPIC_NOT_FOUND 4
-#define PUPLISHER_DUPLICATED 5
+#define PUBLISHER_DUPLICATED 5
 #define SUBSCRIBER_DUPLICATED 6
 #define MSG_LEN_OVERFLOW 7
 #define NOT_SUBSCRIBER_TOPIC 8
