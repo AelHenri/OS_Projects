@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -5,8 +6,8 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
-
-
+#include <dirent.h>
+#include <limits.h>
 
 /* Print all the dirs starting from <path> [maybe recursive]. */
 int print_dirs(const char *path, int recursive)
@@ -18,7 +19,7 @@ int print_dirs(const char *path, int recursive)
     /* Check input parameters. */
     if (!path)
         return -1;
-    path_len = strlen(path);  
+    path_len = strlen(path);    
 
     if (!path || !path_len || (path_len > _POSIX_PATH_MAX))
         return -1;
@@ -48,14 +49,19 @@ int print_dirs(const char *path, int recursive)
             (strcmp(direntp->d_name, "..") == 0))
             continue;
 
-        /* Print only if it is really directory. */
+        /* print */
         if (stat(full_name, &fstat) < 0)
             continue;
-        if (S_ISDIR(fstat.st_mode))
+
+        mode_t m = fstat.st_mode;
+        if (S_ISDIR(m))
         {
-            printf("%s\n", full_name);
+            printf("%s\t(%llu:%llu)\n", full_name, fstat.st_dev, fstat.st_ino );
             if (recursive)
                 print_dirs(full_name, 1);
+        }
+        else if (S_ISREG(m)) {
+            printf("%s\t(%llu:%llu)\n", full_name, fstat.st_dev, fstat.st_ino );
         }
     }
 
