@@ -1,11 +1,11 @@
 CC = clang
 CFLAGS  = -Wall 
 
-all: dirwalker 
+all: dirwalker imapwalker zmapwalker
 
 %: %.c 
 	$(CC) $(CFLAGS) -I./minix/fs -o $@ $< 
 
 
 clean: 
-	rm -rf dirwalker
+	rm -rf dirwalker imapwalker zmapwalker

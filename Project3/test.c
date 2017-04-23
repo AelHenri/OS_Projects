@@ -8,10 +8,6 @@
 #include <sys/stat.h>
 #include <strings.h>
 
-
-
-
-
 void view_directory(const char *path){
 	DIR *directory_name;
 	struct dirent *start;
