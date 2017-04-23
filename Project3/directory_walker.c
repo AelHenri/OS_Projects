@@ -16,7 +16,6 @@ int print_dirs(const char *path, int recursive)
     DIR *dirp = NULL;
     size_t path_len;
 
-    /* Check input parameters. */
     if (!path)
         return -1;
     path_len = strlen(path);    
@@ -24,7 +23,6 @@ int print_dirs(const char *path, int recursive)
     if (!path || !path_len || (path_len > _POSIX_PATH_MAX))
         return -1;
 
-    /* Open directory */
     dirp = opendir(path);
     if (dirp == NULL)
         return -1;
@@ -54,14 +52,28 @@ int print_dirs(const char *path, int recursive)
             continue;
 
         mode_t m = fstat.st_mode;
-        if (S_ISDIR(m))
-        {
-            printf("%s\t(%llu:%llu)\n", full_name, fstat.st_dev, fstat.st_ino );
+        if (S_ISDIR(m)){
+            printf("%s -- (%llu:%llu) -- dir\n", full_name, fstat.st_dev, fstat.st_ino);
             if (recursive)
                 print_dirs(full_name, 1);
         }
         else if (S_ISREG(m)) {
-            printf("%s\t(%llu:%llu)\n", full_name, fstat.st_dev, fstat.st_ino );
+            printf("%s -- (%llu:%llu) -- file\n", full_name, fstat.st_dev, fstat.st_ino);           
+        }
+        else if (S_ISCHR(m)) {
+            printf("%s -- (%llu:%llu) -- char\n", full_name, fstat.st_dev, fstat.st_ino);
+        }
+        else if (S_ISBLK(m)) {
+            printf("%s -- (%llu:%llu) -- block\n", full_name, fstat.st_dev, fstat.st_ino);
+        }
+        else if (S_ISFIFO(m)) {
+            printf("%s -- (%llu:%llu) -- pipe\n", full_name, fstat.st_dev, fstat.st_ino);
+        }
+        else if (S_ISLNK(m)) {
+            printf("%s -- (%llu:%llu) -- link\n", full_name, fstat.st_dev, fstat.st_ino);
+        }
+        else if (S_ISSOCK(m)) {
+            printf("%s -- (%llu:%llu) -- socket\n", full_name, fstat.st_dev, fstat.st_ino);
         }
     }
 
