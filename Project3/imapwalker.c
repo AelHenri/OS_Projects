@@ -1,7 +1,7 @@
 #include "imapwalker.h"
 #include "utilities.h"
 
-int read_imap(char path[]) {
+int read_imap(char path[], int_list *imap) {
     int dfd = open(path, O_RDWR);
     if(dfd == -1)
         return -1;
@@ -28,6 +28,7 @@ int read_imap(char path[]) {
         }
         if (byte & ((char)1 << (i % 8))) {
             printf("%d\n", i);
+            add_int(&(imap->head), i);
         }
     }
 

@@ -18,6 +18,10 @@
 #include "zmapwalker.h"
 #include "imapwalker.h"
 
+#define ROOT_ID 896
+#define HOME_ID 897
+#define USR_ID 898
+
 /*
 int main(){
 	int input=0;
@@ -50,14 +54,18 @@ int main(){
 */
 int main(){
 	int input=0;
+	int dirinput=0;
     char path[] = "/dev/c0d0p0s0";
+    int_list *imap = malloc(sizeof(imap));
+    imap->device = ROOT_ID;
+    imap->head = NULL;
     printf("\nFS TOOLS\n");
 	do{
 		printf("\nPlease enter \n \
 			1 directory walker\n \
 			2 inode bitmap walker \n \
 			3 zone bitmap walker \n \
-			 exit\n");
+			0 exit\n");
 		printf(">");
 		scanf("%d",&input);
 		switch(input){
@@ -66,8 +74,8 @@ int main(){
 				printf("\nPlease enter \n \
 					1 recursion\n \
 					0 no recursion\n");
-				scanf("%d",&input);
-				directoryWalker(input);
+				scanf("%d",&dirinput);
+				directoryWalker(dirinput, imap);
 				break;
 			case 2:
 				printf("\ninode bitmap is:");
@@ -82,6 +90,7 @@ int main(){
 				break;
 			default:
 				break;
+			empty_list(&(imap->head));
 		}
 	}while(input !=0);
 }

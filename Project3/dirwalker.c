@@ -1,6 +1,5 @@
 
 #include "dirwalker.h"
-#include "utilities.h"
 
 //static struct super_block sb;
 
@@ -79,7 +78,7 @@ int get_blocks(int tab[V2_NR_TZONES], dev_t dev_id, ino_t inode_id){
 }
 
 
-int view_directory(const char *path, int recursive)
+int view_directory(const char *path, int recursive, int_list *imap)
 {
     struct dirent *direntp = NULL;
     DIR *dirp = NULL;
@@ -122,6 +121,9 @@ int view_directory(const char *path, int recursive)
             continue;
 
         mode_t m = fstat.st_mode;
+        if (fstat.st_dev == imap->device){
+            add_int(&(imap->head), fstat.st_ino);
+        }
 
         if (S_ISDIR(m)){
             printf("%s -- (%llu:%llu) -- dir -- ", full_name, fstat.st_dev, fstat.st_ino);
@@ -154,7 +156,7 @@ int view_directory(const char *path, int recursive)
         }
         printf("\n");
         if (S_ISDIR(m) && recursive)
-            view_directory(full_name, 1);
+            view_directory(full_name, 1, imap);
     }
 
     /* Finalize resources. */
@@ -162,11 +164,11 @@ int view_directory(const char *path, int recursive)
     return 0;
 }
 
-int directoryWalker(int r){
+int directoryWalker(int r, int_list *imap){
 	char path[50];
 	bzero(path,50);
 	printf("Enter the path you want to open: \n");
 	scanf(" %[^\n]%*c", path);
-	view_directory(path, r);
+	view_directory(path, r, imap);
 	return 0;
 }
