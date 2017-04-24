@@ -1,37 +1,8 @@
-#include <sys/cdefs.h>
-#include <fcntl.h>
-#include <lib.h>
-#include <stdio.h>
-#include <dirent.h>
-#include <string.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include <sys/stat.h>
-#include <strings.h>
-#include "mfs/const.h"
-#include "mfs/inode.h"
-#include "mfs/type.h"
-#include "mfs/mfsdir.h"
-#include "mfs/super.h"
+
+#include "dirwalker.h"
+#include "utilities.h"
 
 //static struct super_block sb;
-
-
-int read_superblock(int dfd, struct super_block *sb){
-	if(lseek(dfd, SUPER_BLOCK_BYTES, SEEK_SET) != SUPER_BLOCK_BYTES){
-		perror("lseek super block");
-		return -1;
-	}
-	if(read(dfd, sb, sizeof(*sb)) != sizeof(*sb)){
-		perror("error read superblock");
-		return -1;
-	}
-	if(sb->s_magic != SUPER_V3){
-		perror("bad magic superblock");
-		return -1;
-	} 
-	return 0;
-}
 
 int get_device_file(dev_t dev_id){
 
@@ -198,33 +169,4 @@ int directoryWalker(int r){
 	scanf(" %[^\n]%*c", path);
 	view_directory(path, r);
 	return 0;
-}
-
-int main(){
-	int input=0;
-
-    printf("\nFS TOOLS\n");
-	do{
-		printf("\nPlease enter \n \
-			1 directory walker\n \
-			0 exit\n");
-		printf(">");
-		scanf("%d",&input);
-		switch(input){
-
-			case 1:{
-			printf("\nPlease enter \n \
-			1 recursion\n \
-			0 no recursion\n");
-			scanf("%d",&input);
-			directoryWalker(input);
-			}
-			break;
-			case 0:
-			exit(0);
-			break;
-			default:
-			break;
-		}
-	}while(input !=0);
 }
