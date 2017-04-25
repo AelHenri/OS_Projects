@@ -43,4 +43,8 @@ void check_imaps(char path[]) {
 	if (!diffs) {
 		printf("No damage found.\n");
 	}
+	print_list(&(actual_imap->head));
+	printf("\n");
+	print_list(&(imap->head));
+	printf("\n");
 }

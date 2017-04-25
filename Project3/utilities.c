@@ -1,8 +1,9 @@
 #include "utilities.h"
 
-void add_int(int_elmt **list, int data) {
+void add_int(int_elmt **list, int data, int index) {
 	int_elmt *elmt = malloc(sizeof(int_elmt));
 	elmt->data = data;
+	elmt->index = index;
 	elmt->next = *list;
 	(*list) = elmt;
 }
@@ -28,7 +29,7 @@ void empty_list(int_elmt **list) {
 void print_list(int_elmt **list) {
 	int_elmt *it = *list;
 	while (it != NULL) {
-		printf("%d\n", it->data);
+		printf("%d", it->data);
 		it = it->next;
 	}
 	it = NULL;
@@ -49,20 +50,21 @@ int get_imap_from_inodes(char path[], int_list *imap) {
 	}
 
 	struct inode i;
-	printf("1");
-	add_int(&(imap->head), 0);
+	//printf("1");
+	add_int(&(imap->head), 1, 0);
 	for (int k = 0; k < sb.s_ninodes-1; k++){
 		if(read(dfd, &i, V2_INODE_SIZE) != V2_INODE_SIZE){
 			perror("error read inode");
 			return -1;
 		}
 		if (i.i_mode != I_NOT_ALLOC) {
-			add_int(&(imap->head), k+1);
-			printf("1");
+			add_int(&(imap->head), 1, k+1);
+			//printf("1");
 			//printf("adding inode number %d with mode %hu\n", k, i.i_mode);
 		}
 		else {
-			printf("0");
+			add_int(&(imap->head), 0, k+1);
+			//printf("0");
 			//printf("skipping inode number %d with mode %hu\n", k, i.i_mode );
 		}
 		//printf("getting imap %hu\n", i.i_nlinks);

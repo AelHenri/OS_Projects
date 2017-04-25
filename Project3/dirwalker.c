@@ -71,9 +71,9 @@ int view_directory(const char *path, int recursive, int_list *imap)
             continue;
 
         mode_t m = fstat.st_mode;
-        if (fstat.st_dev == imap->device){
+        /*if (fstat.st_dev == imap->device){
             add_int(&(imap->head), fstat.st_ino);
-        }
+        }*/
 
         if (S_ISDIR(m)){
             printf("%s -- (%llu:%llu) -- dir -- ", full_name, fstat.st_dev, fstat.st_ino);

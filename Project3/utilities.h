@@ -28,6 +28,7 @@
 
 typedef struct Int_elmt{
 	int data;
+	int index;
 	struct Int_elmt *next;
 }int_elmt;
 
@@ -36,7 +37,7 @@ typedef struct Int_list{
 	int_elmt *head;
 }int_list;
 
-void add_int(int_elmt **list, int data);
+void add_int(int_elmt **list, int data, int index);
 int pop_int(int_elmt **list);
 void empty_list(int_elmt **list);
 void print_list(int_elmt **list);
