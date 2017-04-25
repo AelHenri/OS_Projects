@@ -17,7 +17,7 @@
 #include "dirwalker.h"
 #include "zmapwalker.h"
 #include "imapwalker.h"
-
+#include "check_imap.h"
 
 /*
 int main(){
@@ -62,6 +62,7 @@ int main(){
 			1 directory walker\n \
 			2 inode bitmap walker \n \
 			3 zone bitmap walker \n \
+			4 check imaps \n \
 			0 exit\n");
 		printf(">");
 		scanf("%d",&input);
@@ -76,12 +77,16 @@ int main(){
 				break;
 			case 2:
 				printf("\ninode bitmap is:");
-				read_imap(path, imap);				
+				read_imap(path, imap);
+				printf("first element: %d\n", (imap->head)->data);				
 				break;
 			case 3:
 				printf("\nzone bitmap is:");
 				read_zmap(path);				
 				break;
+			case 4:
+				printf("Checking imaps...\n");
+				check_imaps(path);
 			case 0:
 				exit(0);
 				break;

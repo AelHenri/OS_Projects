@@ -2,13 +2,13 @@
 
 int read_imap(char path[], int_list *imap) {
     int nb_device = -1;
-    if(strcmp(path, ROOT) != 0){
+    if(strcmp(path, ROOT) == 0){
         nb_device = ROOT_ID;
     }
-    if(strcmp(path, USR) != 0){
+    if(strcmp(path, USR) == 0){
         nb_device = USR_ID;
     }
-    if(strcmp(path, HOME) != 0){
+    if(strcmp(path, HOME) == 0){
         nb_device = HOME_ID;
     }     
 
@@ -21,6 +21,7 @@ int read_imap(char path[], int_list *imap) {
         return -1;
 
     unsigned int imap_size = sb.s_ninodes;
+    printf("IMAP SIZE: %u\n", imap_size);
 
     int offset = (START_BLOCK) * sb.s_block_size;
     if(lseek(dfd, offset, SEEK_SET) != offset){

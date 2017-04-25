@@ -1,3 +1,6 @@
+#ifndef UTILITIES_H
+#define UTILITIES_H
+
 #include <sys/cdefs.h>
 #include <fcntl.h>
 #include <lib.h>
@@ -35,5 +38,10 @@ typedef struct Int_list{
 void add_int(int_elmt **list, int data);
 int pop_int(int_elmt **list);
 void empty_list(int_elmt **list);
+void print_list(int_elmt **list);
 
+int get_imap_from_inodes(int_list *imap, dev_t dev_id);
 int read_superblock(int dfd, struct super_block *sb);
+int get_device_file(dev_t dev_id);
+
+#endif

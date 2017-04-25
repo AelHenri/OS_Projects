@@ -3,56 +3,6 @@
 
 //static struct super_block sb;
 
-int get_device_file(dev_t dev_id){
-
-	char path[] = "/dev/";
-    struct dirent *direntp = NULL;
-    DIR *dirp = NULL;
-    size_t path_len;
-
-    path_len = strlen(path);    
-
-    dirp = opendir(path);
-    if (dirp == NULL){
-    	perror("opendir /dev");
-        return -1;
-    }
-
-    while ((direntp = readdir(dirp)) != NULL)
-    {
-        /* For every directory entry... */
-        struct stat fstat;
-        char full_name[_POSIX_PATH_MAX + 1];
-
-        /* Ignore special directories. */
-        if ((strcmp(direntp->d_name, ".") == 0) ||
-            (strcmp(direntp->d_name, "..") == 0))
-            continue;
-
-        /* Calculate full name, check we are in file length limts */
-        if ((path_len + strlen(direntp->d_name) + 1) > _POSIX_PATH_MAX)
-            continue;
-
-        strcpy(full_name, path);
-        strcat(full_name, direntp->d_name);
-
-        /* print */
-        if (stat(full_name, &fstat) < 0)
-            continue;
-
-		if (S_ISBLK(fstat.st_mode) && fstat.st_rdev == dev_id){
-			closedir(dirp);
-			return open(full_name, O_RDWR);
-        }
-
-    }
-
-    /* Finalize resources. */
-    closedir(dirp);
-    fprintf(stderr, "Couldnt find device\n");
-    return -1;
-}
-
 int get_blocks(int tab[V2_NR_TZONES], dev_t dev_id, ino_t inode_id){
 	int dfd = get_device_file(dev_id);
 	if(dfd == -1)
