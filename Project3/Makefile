@@ -3,7 +3,7 @@ CC = clang
 CFLAGS  = -Wall -std=c99 -I./minix/fs
 
 OBJ= main.o\
-	utilities\
+	utilities.o\
 	dirwalker.o\
 	imapwalker.o\
 	zmapwalker.o\
