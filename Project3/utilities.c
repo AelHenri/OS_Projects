@@ -53,9 +53,14 @@ int get_imap_from_inodes(int_list *imap, dev_t dev_id) {
 			perror("error read inode");
 			return -1;
 		}
-		if (i.i_nlinks > 0) {
+		if (i.i_mode != I_NOT_ALLOC) {
 			add_int(&(imap->head), k);
-			printf("adding inode number %d whith %hu links\n", k, i.i_nlinks);
+			printf("1");
+			//printf("adding inode number %d with mode %hu\n", k, i.i_mode);
+		}
+		else {
+			printf("0");
+			//printf("skipping inode number %d with mode %hu\n", k, i.i_mode );
 		}
 		//printf("getting imap %hu\n", i.i_nlinks);
 	}

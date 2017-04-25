@@ -36,12 +36,16 @@ int read_imap(char path[], int_list *imap) {
                 perror("read byte");
                 return -1;
             }
+            //printf("Byte read: %hhu\n", byte);
         }
         if (byte & ((char)1 << (i % 8))) {
-            printf("%d\n", i);
+            printf("1");
             if(nb_device == imap->device){
                add_int(&(imap->head), i);
             }
+        }
+        else {
+            printf("0");
         }
     }
 

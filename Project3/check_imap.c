@@ -19,7 +19,10 @@ void check_imaps(char path[]) {
 	imap->device = nb_device;
 	imap->head = NULL;
 
+	printf("Getting imap from the inode bitmap in superblock...\n");
 	read_imap(path, actual_imap);
+	printf("\n");
+	printf("Getting imap from the actual inodes...\n");
 	get_imap_from_inodes(imap, nb_device);
 
 	int_elmt *it1 = actual_imap->head;

@@ -16,6 +16,7 @@
 #include "mfs/type.h"
 #include "mfs/mfsdir.h"
 #include "mfs/super.h"
+#include <minix/const.h>
 
 #define ROOT "/dev/c0d0p0s0"
 #define USR "/dev/c0d0p0s2"
