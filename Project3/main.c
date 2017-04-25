@@ -18,9 +18,6 @@
 #include "zmapwalker.h"
 #include "imapwalker.h"
 
-#define ROOT_ID 896
-#define HOME_ID 897
-#define USR_ID 898
 
 /*
 int main(){
@@ -79,7 +76,7 @@ int main(){
 				break;
 			case 2:
 				printf("\ninode bitmap is:");
-				read_imap(path);				
+				read_imap(path, imap);				
 				break;
 			case 3:
 				printf("\nzone bitmap is:");

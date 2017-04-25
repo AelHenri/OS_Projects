@@ -1,7 +1,17 @@
 #include "imapwalker.h"
-#include "utilities.h"
 
 int read_imap(char path[], int_list *imap) {
+    int nb_device = -1;
+    if(strcmp(path, ROOT) != 0){
+        nb_device = ROOT_ID;
+    }
+    if(strcmp(path, USR) != 0){
+        nb_device = USR_ID;
+    }
+    if(strcmp(path, HOME) != 0){
+        nb_device = HOME_ID;
+    }     
+
     int dfd = open(path, O_RDWR);
     if(dfd == -1)
         return -1;
@@ -28,7 +38,9 @@ int read_imap(char path[], int_list *imap) {
         }
         if (byte & ((char)1 << (i % 8))) {
             printf("%d\n", i);
-            add_int(&(imap->head), i);
+            if(nb_device == imap->device){
+               add_int(&(imap->head), i);
+            }
         }
     }
 

@@ -14,6 +14,7 @@
 #include "mfs/type.h"
 #include "mfs/mfsdir.h"
 #include "mfs/super.h"
+#include "utilities.h"
 
 
-int read_imap(char path[]);
+int read_imap(char path[], int_list *imap);

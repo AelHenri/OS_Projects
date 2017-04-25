@@ -14,6 +14,14 @@
 #include "mfs/mfsdir.h"
 #include "mfs/super.h"
 
+#define ROOT "/dev/c0d0p0s0"
+#define USR "/dev/c0d0p0s2"
+#define HOME "/dev/c0d0p0s1"
+
+#define ROOT_ID 896
+#define HOME_ID 897
+#define USR_ID 898
+
 typedef struct Int_elmt{
 	int data;
 	struct Int_elmt *next;
