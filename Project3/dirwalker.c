@@ -16,7 +16,7 @@ int get_blocks(int tab[V2_NR_TZONES], dev_t dev_id, ino_t inode_id){
 		return -1;
 	}
 	struct inode i;
-	if(read(dfd, &i, sizeof(i)) != sizeof(i)){
+	if(read(dfd, &i, V2_INODE_SIZE) != V2_INODE_SIZE){
 		perror("error read inode");
 		return -1;
 	}

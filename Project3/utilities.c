@@ -34,10 +34,11 @@ void print_list(int_elmt **list) {
 	it = NULL;
 }
 
-int get_imap_from_inodes(int_list *imap, dev_t dev_id) {
-	int dfd = get_device_file(dev_id);
-	if(dfd == -1)
-		return -1;
+int get_imap_from_inodes(char path[], int_list *imap) {
+	int dfd = open(path, O_RDWR);
+    if(dfd == -1)
+        return -1;
+    
 	struct super_block sb;
 	if(read_superblock(dfd, &sb) == -1)
 		return -1;
@@ -48,13 +49,15 @@ int get_imap_from_inodes(int_list *imap, dev_t dev_id) {
 	}
 
 	struct inode i;
-	for (int k = 0; k < sb.s_ninodes; k++){
-		if(read(dfd, &i, sizeof(i)) != sizeof(i)){
+	printf("1");
+	add_int(&(imap->head), 0);
+	for (int k = 0; k < sb.s_ninodes-1; k++){
+		if(read(dfd, &i, V2_INODE_SIZE) != V2_INODE_SIZE){
 			perror("error read inode");
 			return -1;
 		}
 		if (i.i_mode != I_NOT_ALLOC) {
-			add_int(&(imap->head), k);
+			add_int(&(imap->head), k+1);
 			printf("1");
 			//printf("adding inode number %d with mode %hu\n", k, i.i_mode);
 		}

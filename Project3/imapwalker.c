@@ -40,6 +40,7 @@ int read_imap(char path[], int_list *imap) {
         }
         if (byte & ((char)1 << (i % 8))) {
             printf("1");
+            //printf("%d ", i);
             if(nb_device == imap->device){
                add_int(&(imap->head), i);
             }

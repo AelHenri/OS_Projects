@@ -23,18 +23,24 @@ void check_imaps(char path[]) {
 	read_imap(path, actual_imap);
 	printf("\n");
 	printf("Getting imap from the actual inodes...\n");
-	get_imap_from_inodes(imap, nb_device);
+	get_imap_from_inodes(path, imap);
+	printf("\n");
 
 	int_elmt *it1 = actual_imap->head;
 	int_elmt *it2 = imap->head;
 
 	int index = actual_imap->head->data;
+	int diffs = 0;
 	while(it1 != NULL && it2 != NULL) {
 		if (it1->data != it2->data) {
 			printf("Inode number %d is different in the bitmaps (%d vs %d).\n", index, it1->data, it2->data);
+			diffs = 1;
 		}
 		index--;
 		it1 = it1->next;
 		it2 = it2->next;
+	}
+	if (!diffs) {
+		printf("No damage found.\n");
 	}
 }

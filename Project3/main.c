@@ -52,7 +52,7 @@ int main(){
 int main(){
 	int input=0;
 	int dirinput=0;
-    char path[] = "/dev/c0d0p0s0";
+    char path[] = "/dev/c0d0p0s2";
     int_list *imap = malloc(sizeof(imap));
     imap->device = ROOT_ID;
     imap->head = NULL;
