@@ -1,5 +1,56 @@
 #include "check_imap.h"
 
+int repair_bit(char path[], int inode_id, int bit) {
+	int dfd = open(path, O_RDWR);
+    if(dfd == -1)
+        return -1;
+
+    struct super_block sb;
+    if(read_superblock(dfd, &sb) == -1)
+        return -1;
+
+    unsigned int imap_size = sb.s_ninodes;
+    //printf("IMAP SIZE: %u\n", imap_size);
+
+    int offset = (START_BLOCK) * sb.s_block_size;
+    if(lseek(dfd, offset, SEEK_SET) != offset){
+        perror("lseek inode");
+        return -1;
+    }
+
+    int i = 0;
+    char readByte = 0;
+    char writeByte = 0;
+    while (i != inode_id) {
+    	if (i % 8 == 0) {
+            if(read(dfd, &readByte, 1) != 1) {
+                perror("read byte");
+                return -1;
+            }
+        }
+        i++;
+    }
+    if (i % 8 == 0) {
+        if(read(dfd, &readByte, 1) != 1) {
+            perror("read byte");
+            return -1;
+        }
+    }
+
+    if (bit) {
+    	writeByte = readByte | ((char)1 << (i % 8));
+    } else {
+    	writeByte = readByte & ~((char)1 << (i % 8));
+    }
+    //printf("%hu\n", writeByte);
+    lseek(dfd, -1, SEEK_CUR);
+    if(write(dfd, &writeByte, 1) != 1) {
+    	perror("write byte");
+    	return -1;
+    }
+    return 0;
+}
+
 void check_imaps(char path[]) {
 	int nb_device = -1;
     if(strcmp(path, ROOT) == 0){
@@ -19,6 +70,7 @@ void check_imaps(char path[]) {
 	imap->device = nb_device;
 	imap->head = NULL;
 
+	//repair_bit(path, 8, 0);
 	printf("Getting imap from the inode bitmap in superblock...\n");
 	read_imap(path, actual_imap);
 	printf("\n");
@@ -28,12 +80,13 @@ void check_imaps(char path[]) {
 
 	int_elmt *it1 = actual_imap->head;
 	int_elmt *it2 = imap->head;
-
-	int index = actual_imap->head->data;
+	printf("coucou\n");
+	int index = actual_imap->head->index;
 	int diffs = 0;
 	while(it1 != NULL && it2 != NULL) {
 		if (it1->data != it2->data) {
-			printf("Inode number %d is different in the bitmaps (%d vs %d).\n", index, it1->data, it2->data);
+			printf("Inode number %d is different in the bitmaps (%d vs %d). Attempting to repair.\n", index, it1->data, it2->data);
+			repair_bit(path, index, it2->data);
 			diffs = 1;
 		}
 		index--;
@@ -43,6 +96,7 @@ void check_imaps(char path[]) {
 	if (!diffs) {
 		printf("No damage found.\n");
 	}
+
 	print_list(&(actual_imap->head));
 	printf("\n");
 	print_list(&(imap->head));

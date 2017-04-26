@@ -52,7 +52,7 @@ int main(){
 int main(){
 	int input=0;
 	int dirinput=0;
-    char path[] = "/dev/c0d0p0s2";
+    char path[] = "/dev/c0d0p0s1";
     int_list *imap = malloc(sizeof(imap));
     imap->device = ROOT_ID;
     imap->head = NULL;
@@ -77,8 +77,7 @@ int main(){
 				break;
 			case 2:
 				printf("\ninode bitmap is:");
-				read_imap(path, imap);
-				printf("first element: %d\n", (imap->head)->data);				
+				read_imap(path, imap);			
 				break;
 			case 3:
 				printf("\nzone bitmap is:");

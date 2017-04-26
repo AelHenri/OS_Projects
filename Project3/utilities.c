@@ -26,8 +26,22 @@ void empty_list(int_elmt **list) {
 	}
 }
 
+void reverse_list(int_elmt ** list) {
+	int_elmt *it = *list;
+	int_elmt *tmp_prev = NULL;
+	int_elmt *tmp_next = NULL;
+	while (it != NULL) {
+		tmp_next = it->next;
+		it->next = tmp_prev;
+		tmp_prev = it;
+		it = tmp_next;
+	}
+	*list = tmp_prev;
+}
+
 void print_list(int_elmt **list) {
 	int_elmt *it = *list;
+	reverse_list(&it);
 	while (it != NULL) {
 		printf("%d", it->data);
 		it = it->next;
