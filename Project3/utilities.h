@@ -40,10 +40,15 @@ typedef struct Int_list{
 void add_int(int_elmt **list, int data, int index);
 int pop_int(int_elmt **list);
 void empty_list(int_elmt **list);
+void reverse_list(int_elmt ** list);
 void print_list(int_elmt **list);
+void print_indexes(int_elmt **list);
+void print_indexes_n(int_elmt **list, int n);
 
 int get_imap_from_inodes(char path[], int_list *imap);
+int get_zmap_from_inodes(char path[], int_list *zmap);
 int read_superblock(int dfd, struct super_block *sb);
 int get_device_file(dev_t dev_id);
+int repair_bit(char path[], int inode_id, int bit);
 
 #endif

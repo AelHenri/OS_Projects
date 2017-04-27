@@ -8,6 +8,39 @@ void add_int(int_elmt **list, int data, int index) {
 	(*list) = elmt;
 }
 
+void add_int_at(int_elmt **list, int data, int index) {
+	int_elmt *elmt = malloc(sizeof(int_elmt));
+	elmt->data = data;
+	elmt->index = index;
+
+	int_elmt *it = *list;
+	int_elmt *it_prev = *list;
+	printf("In add_int_at\n");
+	while(it != NULL && it->index < index) {
+	//	printf("In add_int_at loop\n");
+		it_prev = it;
+		it = it->next;
+	}
+	if ((*list) != NULL){
+		elmt->next = it;
+		it_prev->next = elmt;
+	} else {
+		(*list) = elmt;
+	}
+}
+
+void replace(int_elmt **list, int data, int index) {
+	int_elmt *it = *list;
+	while(it != NULL && it->index != index) {
+		it = it->next;
+	}
+	if (*list != NULL) {
+		it->data = data;
+	} else {
+		add_int(list, data, index);
+	}
+}
+
 int pop_int(int_elmt **list) {
 	int rep = -1;
 	int_elmt *tmp1 = (*list);
@@ -41,12 +74,94 @@ void reverse_list(int_elmt ** list) {
 
 void print_list(int_elmt **list) {
 	int_elmt *it = *list;
-	reverse_list(&it);
 	while (it != NULL) {
 		printf("%d", it->data);
 		it = it->next;
 	}
 	it = NULL;
+}
+
+void print_indexes(int_elmt **list) {
+	int_elmt *it = *list;
+	reverse_list(&it);
+	while (it != NULL) {
+		printf("%d", it->index);
+		it = it->next;
+	}
+	it = NULL;
+}
+
+void print_indexes_n(int_elmt **list, int n) {
+	int_elmt *it = *list;
+	//reverse_list(&it);
+	int i = 0;
+	while (it != NULL && i < n) {
+		printf("%d\n", it->index);
+		it = it->next;
+		i++;
+	}
+	it = NULL;
+}
+
+//TODO
+int get_indirect_zone(int tab[]) {
+	return 0;
+}
+
+int get_zmap_from_inodes(char path[], int_list *zmap) {
+	int dfd = open(path, O_RDWR);
+    if(dfd == -1)
+        return -1;
+    
+	struct super_block sb;
+	if(read_superblock(dfd, &sb) == -1)
+		return -1;
+
+	int scale = (1 << sb.s_log_zone_size);
+	int n_ilist = ((sb.s_ninodes+V2_INODES_PER_BLOCK(sb.s_block_size)-1) / V2_INODES_PER_BLOCK(sb.s_block_size));
+	int blk_ilist = START_BLOCK + sb.s_imap_blocks + sb.s_zmap_blocks;
+	sb.s_firstdatazone = (blk_ilist + n_ilist + scale - 1) >> sb.s_log_zone_size;
+
+	int offset = (START_BLOCK + sb.s_imap_blocks + sb.s_zmap_blocks) * sb.s_block_size;
+	if(lseek(dfd, offset, SEEK_SET) != offset){
+		perror("lseek inode");
+		return -1;
+	}
+
+	struct inode i;
+
+	for (int j = 0; j<sb.s_zones; j++) {
+		add_int(&(zmap->head), 0, j);
+	}
+	replace(&(zmap->head), 1, 0);
+
+	for (int k = 0; k < sb.s_ninodes-1; k++){
+		if(read(dfd, &i, V2_INODE_SIZE) != V2_INODE_SIZE){
+			perror("error read inode");
+			return -1;
+		}
+		//printf("In first for\n");
+
+		if (i.i_mode != I_NOT_ALLOC) {
+			for(int d = 0; d < V2_NR_TZONES; d++){
+				if (d < V2_NR_DZONES){	
+					if (i.i_zone[d] != 0){
+						//printf("In inode %d, zone %d\n", k, (i.i_zone[d] << sb.s_log_zone_size)-sb.s_firstdatazone+1);
+						replace(&(zmap->head), 1, (i.i_zone[d] << sb.s_log_zone_size)-sb.s_firstdatazone+1);
+					} else {
+						//add_int_at(&(zmap->head), 0, k*V2_INODE_SIZE+d);
+					}
+				}
+				else if (d-V2_NR_DZONES == 1) {
+					int tab[10];
+					get_indirect_zone(tab);
+				}
+			}
+		}
+		//printf("getting imap %hu\n", i.i_nlinks);
+	}
+	close(dfd);
+	return 0;
 }
 
 int get_imap_from_inodes(char path[], int_list *imap) {
@@ -152,3 +267,4 @@ int get_device_file(dev_t dev_id){
     fprintf(stderr, "Couldnt find device\n");
     return -1;
 }
+

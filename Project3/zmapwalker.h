@@ -15,5 +15,6 @@
 #include "mfs/mfsdir.h"
 #include "mfs/super.h"
 
+#include "utilities.h"
 
-int read_zmap(char path[]);
+int read_zmap(char path[], int_list *zmap);

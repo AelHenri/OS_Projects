@@ -18,6 +18,7 @@
 #include "zmapwalker.h"
 #include "imapwalker.h"
 #include "check_imap.h"
+#include "check_zmap.h"
 
 /*
 int main(){
@@ -63,6 +64,8 @@ int main(){
 			2 inode bitmap walker \n \
 			3 zone bitmap walker \n \
 			4 check imaps \n \
+			5 check zmaps \n \
+			7 damage bitmaps (1) \n \
 			0 exit\n");
 		printf(">");
 		scanf("%d",&input);
@@ -77,21 +80,49 @@ int main(){
 				break;
 			case 2:
 				printf("\ninode bitmap is:");
-				read_imap(path, imap);			
+				read_imap(path, imap);
+				print_list(&(imap->head));		
 				break;
 			case 3:
 				printf("\nzone bitmap is:");
-				read_zmap(path);				
+				read_zmap(path, imap);
+				print_list(&(imap->head));				
 				break;
 			case 4:
 				printf("Checking imaps...\n");
 				check_imaps(path);
+				break;
+			case 5:
+				printf("Checking zmaps...\n");
+				check_zmaps(path);
+				break;
+			case 7:
+				printf("Damaging maps, choose 5 bits to change to 1:\n");
+				int bit1, bit2, bit3, bit4, bit5;
+				scanf("%d", &bit1);
+				scanf("%d", &bit2);
+				scanf("%d", &bit3);
+				scanf("%d", &bit4);
+				scanf("%d", &bit5);
+				repair_bit_imap(path, bit1, 1); 
+				repair_bit_zmap(path, bit1, 1);
+				repair_bit_imap(path, bit2, 1); 
+				repair_bit_zmap(path, bit2, 1);
+				repair_bit_imap(path, bit3, 1); 
+				repair_bit_zmap(path, bit3, 1);
+				repair_bit_imap(path, bit4, 1); 
+				repair_bit_zmap(path, bit4, 1);
+				repair_bit_imap(path, bit5, 1); 
+				repair_bit_zmap(path, bit5, 1); 
+				break;
 			case 0:
 				exit(0);
 				break;
 			default:
+				exit(0);
 				break;
 			empty_list(&(imap->head));
 		}
+		input = -1;
 	}while(input !=0);
 }

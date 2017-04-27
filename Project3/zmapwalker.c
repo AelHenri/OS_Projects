@@ -1,7 +1,6 @@
 #include "zmapwalker.h"
-#include "utilities.h"
 
-int read_zmap(char path[], int_list *imap) {
+int read_zmap(char path[], int_list *zmap) {
     int dfd = open(path, O_RDWR);
     if(dfd == -1)
         return -1;
@@ -29,11 +28,12 @@ int read_zmap(char path[], int_list *imap) {
         }
         if (byte & ((char)1 << (i % 8))) {
             //printf("%d\n", i);
-            add_int(&(imap->head), 1, i);
+            add_int(&(zmap->head), 1, i);
         } else {
-            add_int(&(imap->head), 0, i);
+            add_int(&(zmap->head), 0, i);
         }
     }
+
 
     close(dfd);
     return zmap_size;
