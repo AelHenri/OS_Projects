@@ -28,7 +28,7 @@ int get_blocks(int tab[V2_NR_TZONES], dev_t dev_id, ino_t inode_id){
 }
 
 
-int view_directory(const char *path, int recursive, int_list *imap)
+int view_directory(const char *path, int recursive)
 {
     struct dirent *direntp = NULL;
     DIR *dirp = NULL;
@@ -106,7 +106,7 @@ int view_directory(const char *path, int recursive, int_list *imap)
         }
         printf("\n");
         if (S_ISDIR(m) && recursive)
-            view_directory(full_name, 1, imap);
+            view_directory(full_name, 1);
     }
 
     /* Finalize resources. */
@@ -114,11 +114,11 @@ int view_directory(const char *path, int recursive, int_list *imap)
     return 0;
 }
 
-int directoryWalker(int r, int_list *imap){
+int directoryWalker(int r){
 	char path[50];
 	bzero(path,50);
 	printf("Enter the path you want to open: \n");
 	scanf(" %[^\n]%*c", path);
-	view_directory(path, r, imap);
+	view_directory(path, r);
 	return 0;
 }

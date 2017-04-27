@@ -78,7 +78,7 @@ int main(){
 					1 recursion\n \
 					0 no recursion\n");
 				scanf("%d",&dirinput);
-				directoryWalker(dirinput, imap);
+				directoryWalker(dirinput);
 				break;
 			case 2:
 				printf("\ninode bitmap is:");
@@ -100,11 +100,11 @@ int main(){
 				break;
 			case 6:
 				printf("Check directory...\n");
-				char path[50];
-				bzero(path,50);
+				char checkPath[50];
+				bzero(checkPath,50);
 				printf("Enter the directory you want to check: \n");
-				scanf(" %[^\n]%*c", path);
-				view_directory_special_files(path, imap);
+				scanf(" %[^\n]%*c", checkPath);
+				view_directory_special_files(checkPath);
 				break;
 			case 7:
 				printf("Damaging maps, choose 5 bits to change to 1:\n");
@@ -131,8 +131,8 @@ int main(){
 			default:
 				exit(0);
 				break;
-			empty_list(&(imap->head));
 		}
+		empty_list(&(imap->head));
 		input = -1;
 	}while(input !=0);
 }

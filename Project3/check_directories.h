@@ -17,5 +17,5 @@
 #include "utilities.h"
 #include "dirwalker.h"
 
-int view_directory_special_files(char path[], int_list *imap);
+int view_directory_special_files(char path[]);
 ino_t check_special_directories(char path[]);

@@ -32,7 +32,7 @@ ino_t check_special_directories(char path[]) {
 }
 
 
-int view_directory_special_files(char path[], int_list *imap)
+int view_directory_special_files(char path[])
 {   
     ino_t current_inode = -1;
     ino_t s_inode = -1;
@@ -96,8 +96,8 @@ int view_directory_special_files(char path[], int_list *imap)
             printf("Full name is :  %s, inode %llu \n", full_name, s_inode);
             //s_inode = check_special_directories(full_name);
             if (s_inode == current_inode ){
-                printf("addin directory, full_name: %s\n", full_name);
-                add_int(&(imap->head), fstat.st_ino, 0);
+                printf("adding directory, full_name: %s\n", full_name);
+                //add_int(&(imap->head), fstat.st_ino, 0);
             }
         }/*
         else if (S_ISREG(m)) {

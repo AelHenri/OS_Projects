@@ -1,13 +1,18 @@
 #include "check_zmap.h"
 
 int repair_bit_zmap(char path[], int zone_id, int bit) {
+	printf("Setting bit bit number %d to %d...\n", zone_id, bit);
 	int dfd = open(path, O_RDWR);
-    if(dfd == -1)
+    if(dfd == -1) {
+    	perror("open");
         return -1;
+    }
 
     struct super_block sb;
-    if(read_superblock(dfd, &sb) == -1)
+    if(read_superblock(dfd, &sb) == -1) {
+    	perror("read sb");
         return -1;
+    }
 
     unsigned int zmap_size = sb.s_zones;
     //printf("IMAP SIZE: %u\n", imap_size);
@@ -42,7 +47,7 @@ int repair_bit_zmap(char path[], int zone_id, int bit) {
     } else {
     	writeByte = readByte & ~((char)1 << (i % 8));
     }
-    //printf("%hu\n", writeByte);
+    //printf("zone %hu\n", writeByte);
     lseek(dfd, -1, SEEK_CUR);
     if(write(dfd, &writeByte, 1) != 1) {
     	perror("write byte");

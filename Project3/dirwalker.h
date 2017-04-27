@@ -17,5 +17,5 @@
 
 
 int get_blocks(int tab[V2_NR_TZONES], dev_t dev_id, ino_t inode_id);
-int view_directory(const char *path, int recursive, int_list *imap);
-int directoryWalker(int r, int_list *imap);
+int view_directory(const char *path, int recursive);
+int directoryWalker(int r);

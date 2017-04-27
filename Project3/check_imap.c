@@ -1,6 +1,7 @@
 #include "check_imap.h"
 
 int repair_bit_imap(char path[], int inode_id, int bit) {
+	printf("Setting inode bit number %d to %d...\n", inode_id, bit);
 	int dfd = open(path, O_RDWR);
     if(dfd == -1)
         return -1;
@@ -42,7 +43,6 @@ int repair_bit_imap(char path[], int inode_id, int bit) {
     } else {
     	writeByte = readByte & ~((char)1 << (i % 8));
     }
-    //printf("%hu\n", writeByte);
     lseek(dfd, -1, SEEK_CUR);
     if(write(dfd, &writeByte, 1) != 1) {
     	perror("write byte");
