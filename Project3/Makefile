@@ -9,6 +9,7 @@ OBJ= main.o\
 	zmapwalker.o\
 	check_imap.o\
 	check_zmap.o\
+	check_directories.o\
 
 
 SRC= utilities.h\
@@ -24,12 +25,14 @@ SRC= utilities.h\
 	check_imap.c\
 	check_zmap.h\
 	check_zmap.c\
+	check_directories.h\
+	check_directories.c\
 
 BIN= main
 
 all: $(BIN)
 
-main: main.o utilities.o dirwalker.o imapwalker.o zmapwalker.o check_imap.o check_zmap.o
+main: main.o utilities.o dirwalker.o imapwalker.o zmapwalker.o check_imap.o check_zmap.o check_directories.o
 	$(CC) $(CFLAGS) $^ -o $@ 
 
 utilities.o: utilities.h utilities.c
@@ -39,6 +42,7 @@ zmapwalker.o: utilities.h zmapwalker.h zmapwalker.c
 main.o: main.c utilities.h dirwalker.h imapwalker.h zmapwalker.h
 check_imap.o: utilities.h imapwalker.h check_imap.h check_imap.c
 check_zmap.o: utilities.h zmapwalker.h check_zmap.h check_zmap.c
+check_directories.o: utilities.h dirwalker.h check_directories.h check_directories.c
 
 clean:
 	rm -f $(OBJ) *~ 

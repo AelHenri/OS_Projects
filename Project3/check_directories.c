@@ -1,30 +1,30 @@
 #include "check_directories.h"
 
 
-unsigned long check_special_directories(char path[]) {
+ino_t check_special_directories(char path[]) {
     printf("INSIDE CHECK SPECIAL DIRECTORIES(%s)\n", path);
     struct stat fstat;
     int p_flag = -1;
-    unsigned long pp_flag = -1;
+    ino_t pp_flag = -1;
     struct dirent *dp;
     size_t path_len;
     if(stat(path, &fstat) < 0){
         return -1;
     }
-    unsigned long current_inode = fstat.st_ino;
+    ino_t current_inode = fstat.st_ino;
     DIR *dirp = opendir(path);
     while ((dp = readdir(dirp)) != NULL) {
 
-        if(strcmp(dp-> d_name, ".") == 0 && (unsigned long)dp-> d_ino == current_inode){
-            printf("courant %s %lu\n", dp-> d_name, (unsigned long)dp-> d_ino );
+        if(strcmp(dp-> d_name, ".") == 0 && (ino_t)dp-> d_ino == current_inode){
+            printf("courant %s %llu\n", dp-> d_name, (ino_t)dp-> d_ino );
             p_flag = 1;
         } 
         else if(strcmp(dp-> d_name, "..") == 0){
-            printf("pere %s %lu\n", dp-> d_name, (unsigned long)dp-> d_ino );
-            pp_flag = (unsigned long)dp-> d_ino ;
+            printf("pere %s %llu\n", dp-> d_name, (ino_t)dp-> d_ino );
+            pp_flag = (ino_t)dp-> d_ino ;
         }
     }
-    if(pp_flag =! -1 && p_flag == 1){
+    if(pp_flag != -1 && p_flag == 1){
         return pp_flag;
     }
     closedir(dirp);
@@ -32,10 +32,10 @@ unsigned long check_special_directories(char path[]) {
 }
 
 
-int view_directory_special_files(const char *path, int_list *imap)
+int view_directory_special_files(char path[], int_list *imap)
 {   
-    unsigned long current_inode = -1;
-    unsigned long s_inode = -1;
+    ino_t current_inode = -1;
+    ino_t s_inode = -1;
     struct dirent *direntp = NULL;
     DIR *dirp = NULL;
     size_t path_len;
@@ -56,7 +56,7 @@ int view_directory_special_files(const char *path, int_list *imap)
     if(stat(path, &fstat) < 0){
         return -1;
     }
-    //unsigned long current_inode = fstat.st_ino;
+    //ino_t current_inode = fstat.st_ino;
     current_inode = check_special_directories(path);
     printf("the path is %s and  inode %llu \n", path, current_inode );
     dirp = opendir(path);

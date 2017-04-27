@@ -19,6 +19,7 @@
 #include "imapwalker.h"
 #include "check_imap.h"
 #include "check_zmap.h"
+#include "check_directories.h"
 
 /*
 int main(){
@@ -65,6 +66,7 @@ int main(){
 			3 zone bitmap walker \n \
 			4 check imaps \n \
 			5 check zmaps \n \
+			6 check directory \n \
 			7 damage bitmaps (1) \n \
 			0 exit\n");
 		printf(">");
@@ -95,6 +97,14 @@ int main(){
 			case 5:
 				printf("Checking zmaps...\n");
 				check_zmaps(path);
+				break;
+			case 6:
+				printf("Check directory...\n");
+				char path[50];
+				bzero(path,50);
+				printf("Enter the directory you want to check: \n");
+				scanf(" %[^\n]%*c", path);
+				view_directory_special_files(path, imap);
 				break;
 			case 7:
 				printf("Damaging maps, choose 5 bits to change to 1:\n");

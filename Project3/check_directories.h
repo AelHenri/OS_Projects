@@ -15,6 +15,7 @@
 #include "mfs/mfsdir.h"
 #include "mfs/super.h"
 #include "utilities.h"
+#include "dirwalker.h"
 
-int view_directory_special_files(const char *path, int_list *imap);
-unsigned long check_special_directories(char path[]);
+int view_directory_special_files(char path[], int_list *imap);
+ino_t check_special_directories(char path[]);
